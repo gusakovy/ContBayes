@@ -73,7 +73,7 @@ class FullCovBNN(tyxe.VariationalBNN):
         FullCovBNN.set_scale(scale)
         FullCovBNN.set_tril(scale_tril)
 
-    def jacobian(self, inputs: Tensor, truncate: bool = None) -> Tensor:
+    def jacobian(self, inputs: Tensor, truncate: bool = None, reduction: str = None, **kwargs) -> Tensor:
         """
         Returns the Jacobian of the model with respect to its weights. If multiple inputs are given, the jacobian
         matrices are concatenated along the first dimension.
@@ -84,4 +84,9 @@ class FullCovBNN(tyxe.VariationalBNN):
         param_vector = self.get_loc()
         nn.utils.vector_to_parameters(param_vector, self.torch_net.parameters())
 
-        return autograd_jacobian(self.torch_net, inputs, truncate)
+        return autograd_jacobian(model=self.torch_net,
+                                 inputs=inputs,
+                                 output_dim=self.output_dim,
+                                 truncate=truncate,
+                                 reduction=reduction,
+                                 labels=kwargs["labels"] if "labels" in kwargs.keys() else None)
