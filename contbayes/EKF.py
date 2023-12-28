@@ -8,27 +8,19 @@ from contbayes.utils import reduce_tensor, multiple_categorical_cov
 
 class Observation:
     def __init__(self, inputs=None, outputs=None):
-        self.inputs = inputs if inputs is None else torch.atleast_2d(inputs)
+        self.inputs = None if inputs is None else torch.atleast_2d(inputs)
         self.outputs = outputs
         self.num_obs = None if inputs is None else self.inputs.size(0)
-        self.out_dim = None if outputs is None else self.outputs.size(-1)
+        self.out_dim = None if outputs is None else torch.atleast_2d(self.outputs).size(-1)
 
-    def allocate_space(self, num_obs, out_dim):
-        self.inputs = torch.zeros(num_obs, out_dim)
-        self.num_obs = num_obs
-
-    def update_observation(self, new_inputs, new_outputs=None):
+    def update_observation(self, new_inputs=None, new_outputs=None):
+        if new_inputs is not None:
+            self.inputs = torch.atleast_2d(new_inputs)
+            self.num_obs = self.inputs.size(0)
         if new_outputs is not None:
-            assert torch.atleast_2d(new_inputs).size(0) == new_outputs.size(0)
+            assert self.num_obs == new_outputs.size(0)
             self.outputs = new_outputs
-            self.out_dim = new_outputs.size(-1)
-        self.inputs = torch.atleast_2d(new_inputs)
-        self.num_obs = self.inputs.size(0)
-
-    def update_outputs(self, new_outputs):
-        assert self.inputs.size(0) == new_outputs.size(0)
-        self.outputs = new_outputs
-        self.out_dim = new_outputs.size(-1)
+            self.out_dim = torch.atleast_2d(new_outputs).size(-1)
 
 
 class EKF:
@@ -39,19 +31,21 @@ class EKF:
                  update_limit=0.1,
                  obs_noise_cov: Tensor = None,
                  obs_reduction: str = None):
+
         self.obs_model = obs_model
         self.num_classes = obs_model.output_dim
         self.state_model = torch.tensor(state_model)
         self.process_noise_var = torch.tensor(process_noise_var)
         self.update_limit = update_limit
         self.obs = Observation()
-        if self.obs_model.type != "classifier":
+        if self.obs_model.type == "classifier":
+            self.obs_noise_cov = None
+        else:
             assert obs_noise_cov is not None
             self.obs_noise_cov = torch.tensor(obs_noise_cov)
-        else:
-            self.obs_noise_cov = None
         self.obs_reduction = obs_reduction
         self.filtered = False
+        self.skip_counter = 0
 
     def predict_state(self):
         m = self.obs_model.get_loc().view(-1, 1)
@@ -88,29 +82,38 @@ class EKF:
         H = self.obs_model.jacobian(self.obs.inputs, reduction=self.obs_reduction, labels=self.obs.outputs)
 
         if self.obs_reduction is not None:
-            y_true = reduce_tensor(y_true,
+            y_true = reduce_tensor(y_true.view(self.obs.num_obs, self.num_classes - 1),
                                    reduction=self.obs_reduction,
                                    num_classes=self.num_classes,
-                                   labels=self.obs.outputs)
-            y_hat = reduce_tensor(y_hat,
+                                   labels=self.obs.outputs).view(-1, 1)
+            y_hat = reduce_tensor(y_hat.view(self.obs.num_obs, self.num_classes - 1),
                                   reduction=self.obs_reduction,
                                   num_classes=self.num_classes,
-                                  labels=self.obs.outputs)
+                                  labels=self.obs.outputs).view(-1, 1)
 
         e = y_true - y_hat
 
         S = H @ P @ H.T + R
         if torch.allclose(S, torch.zeros(S.size()), atol=1e-4):
+            self.skip_counter += 1
+            self.filtered = True
             return
 
-        K = P @ H.T @ torch.inverse(S)
+        # Computation of filtered mean and cov using least-squares solver:
+        loc_filtered = m + P @ H.T @ torch.linalg.lstsq(S, e)[0]
+        cov_filtered = P - P @ H.T @ torch.linalg.lstsq(S, H @ P)[0]
+        cov_filtered = 1 / 2 * (cov_filtered + cov_filtered.T) + 1e-5 * torch.eye(P.size(0))
 
+        '''
+        # Computation of Kalman gain using inverse:
+        K = P @ H.T @ torch.inverse(S)
         loc_filtered = (m + K @ e).view(1, -1)
         cov_filtered = P - K @ H @ P
         cov_filtered = 1 / 2 * (cov_filtered + cov_filtered.T) + 1e-5 * torch.eye(P.size(0))
+        '''
 
         if callback is not None:
-            callback(y_true=y_true, y_hat=y_hat, pred_error=e, obs_cov=R, obs_model=H, pred_error_cov=S, kalman_gain=K,
+            callback(y_true=y_true, y_hat=y_hat, pred_error=e, obs_cov=R, obs_model=H, pred_error_cov=S,
                      filtered_mean=loc_filtered, filtered_cov=cov_filtered)
 
         old_norm = torch.linalg.vector_norm(m)
@@ -118,9 +121,17 @@ class EKF:
         change = (new_norm - old_norm) / old_norm
         eig, _ = torch.lobpcg(cov_filtered, k=1, largest=False)
 
-        if abs(change) < self.update_limit and eig.item() > 1e-4:
-            self.obs_model.set_loc(loc_filtered)
-            self.obs_model.set_cov(cov_filtered)
+        if abs(change) < self.update_limit and eig.item() > 1e-6:
+            try:
+                self.obs_model.set_cov(cov_filtered)
+                self.obs_model.set_loc(loc_filtered)
+            except:
+                print("It happened")
+                self.obs_model.set_loc(m)
+                self.obs_model.set_cov(P)
+                self.skip_counter += 1
+        else:
+            self.skip_counter += 1
 
         self.filtered = True
 
@@ -130,7 +141,8 @@ class EKF:
     def predict_obs_cov(self, inputs):
         raise NotImplementedError
 
-    def run(self, obs_generator, num_iterations, n_obs=1, callback=None):
+    def run(self, obs_generator, num_iterations, n_obs=1, callback=None, verbose=True):
+        self.skip_counter = 0
         for i in tqdm(range(num_iterations)):
             self.predict_state()
             inputs, outputs = obs_generator(n_obs)
@@ -138,3 +150,5 @@ class EKF:
             self.update_state()
             if callback is not None:
                 callback(iteration_num=i, net=self.obs_model, inputs=inputs, outputs=outputs)
+        if verbose:
+            print(f"skipped {self.skip_counter}/{num_iterations} iterations")

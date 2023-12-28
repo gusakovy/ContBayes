@@ -37,10 +37,12 @@ def autograd_jacobian(model: nn.Module,
             if "labels" not in kwargs.keys():
                 raise ValueError('No labels provided')
             labels = kwargs["labels"]
+            distinct_labels = sorted(set(labels.tolist()))
+            num_distinct_labels = len(distinct_labels)
 
-            Jacobian = torch.zeros(out_dim * (out_dim + 1), n_params)
+            Jacobian = torch.zeros(num_distinct_labels * out_dim, n_params)
 
-            for label in range(out_dim + 1):
+            for label_idx, label in enumerate(distinct_labels):
                 outputs = model(inputs[torch.where(labels == label)]).sum(dim=0)
                 for class_idx in range(out_dim):
                     entry_idx = 0
@@ -48,7 +50,7 @@ def autograd_jacobian(model: nn.Module,
                     outputs[class_idx].backward(retain_graph=True)
                     for param in model_params:
                         grad = param.grad.flatten()
-                        Jacobian[label * out_dim + class_idx, entry_idx: entry_idx + grad.size(0)] = grad
+                        Jacobian[label_idx * out_dim + class_idx, entry_idx: entry_idx + grad.size(0)] = grad
                         entry_idx += grad.size(0)
 
         case _:
@@ -87,24 +89,18 @@ def categorical_cov(p: Tensor) -> Tensor:
 def multiple_categorical_cov(prob_vector: Tensor, num_classes, reduction=None, **kwargs):
     prob_vector = prob_vector.flatten()
     num_obs = prob_vector.size(0) // (num_classes - 1)
+    full_cov = categorical_cov(prob_vector)
+    cov_column = torch.stack([full_cov[obs_idx*(num_classes - 1):(obs_idx+1)*(num_classes - 1),
+                                       obs_idx*(num_classes - 1):(obs_idx+1)*(num_classes - 1)]
+                              for obs_idx in range(num_obs)])
+
     match reduction:
-        case 'label':
-            if "labels" not in kwargs.keys():
-                raise ValueError('No labels provided')
-            labels = kwargs["labels"]
-            assert num_obs == labels.size(0)
-            cov = torch.zeros(num_classes * (num_classes - 1), num_classes * (num_classes - 1))
-            for obs_idx in range(num_obs):
-                cov[labels[obs_idx] * (num_classes - 1): (labels[obs_idx] + 1) * (num_classes - 1),
-                    labels[obs_idx] * (num_classes - 1): (labels[obs_idx] + 1) * (num_classes - 1)] += \
-                    categorical_cov(prob_vector[obs_idx * (num_classes - 1): (obs_idx + 1) * (num_classes - 1)])
+        case "label":
+            cov = reduce_tensor(cov_column, "label", **kwargs)
+            cov = torch.block_diag(*list(cov))
             return cov
         case None:
-            cov = torch.zeros(num_obs * (num_classes - 1), num_obs * (num_classes - 1))
-            for obs_idx in range(num_obs):
-                cov[obs_idx * (num_classes - 1): (obs_idx + 1) * (num_classes - 1),
-                    obs_idx * (num_classes - 1): (obs_idx + 1) * (num_classes - 1)] = \
-                    categorical_cov(prob_vector[obs_idx * (num_classes - 1): (obs_idx + 1) * (num_classes - 1)])
+            cov = torch.block_diag(*list(cov_column))
             return cov
         case _:
             raise ValueError(f"Unrecognized reduction method. Recognised reductions: {REDUCTION_TYPES}")
@@ -113,19 +109,15 @@ def multiple_categorical_cov(prob_vector: Tensor, num_classes, reduction=None, *
 def reduce_tensor(inputs: Tensor, reduction=None, **kwargs):
     match reduction:
         case "label":
-            if "num_classes" not in kwargs.keys():
-                raise ValueError('Specify number of classes')
             if "labels" not in kwargs.keys():
                 raise ValueError('No labels provided')
-            num_classes = kwargs["num_classes"]
-            num_obs = inputs.size(0) // (num_classes - 1)
             labels = kwargs["labels"]
-            reduced_tensor = torch.zeros(num_classes, num_classes - 1, inputs.size(1))
-            inputs = inputs.view(num_obs, num_classes - 1, -1)
-            for class_idx in range(num_classes):
-                reduced_tensor[class_idx, ..., ...] = torch.sum(inputs[torch.where(labels == class_idx)], dim=0)
-            return reduced_tensor.view(num_classes * (num_classes - 1), -1)
+            assert labels.size(0) == inputs.size(0)
+            distinct_labels = sorted(set(labels.tolist()))
+            reduced_tensor = torch.stack([torch.sum(inputs[torch.where(labels == label)], dim=0)
+                                          for label in distinct_labels])
+            return reduced_tensor
         case None:
-            return
+            return inputs
         case _:
             raise ValueError(f"Unrecognized reduction method. Recognised reductions: {REDUCTION_TYPES}")
