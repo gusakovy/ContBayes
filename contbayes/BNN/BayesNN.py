@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import torch.nn as nn
 from torch import Tensor
 import pyro
@@ -5,13 +6,20 @@ from pyro.infer.autoguide import AutoGuide
 import tyxe
 from tyxe.priors import Prior
 from tyxe.likelihoods import Likelihood
-from contbayes.utils import scale_and_tril_to_cov, cov_to_scale_and_tril, autograd_jacobian
+from contbayes.Utilities.utils import scale_and_tril_to_cov, cov_to_scale_and_tril, autograd_jacobian
 
 
 MODEL_TYPES = [
     "classifier",
     "regressor"
 ]
+
+
+@dataclass
+class BNNParams:
+    loc: Tensor
+    scale: Tensor
+    tril: Tensor
 
 
 class FullCovBNN(tyxe.VariationalBNN):
@@ -72,6 +80,18 @@ class FullCovBNN(tyxe.VariationalBNN):
         scale, scale_tril = cov_to_scale_and_tril(cov)
         FullCovBNN.set_scale(scale)
         FullCovBNN.set_tril(scale_tril)
+
+    def set_params(self, new_params: BNNParams) -> None:
+        new_loc, new_scale, new_tril = new_params.loc, new_params.scale, new_params.tril
+        if new_loc is not None:
+            self.set_loc(new_loc)
+        if new_scale is not None:
+            self.set_scale(new_scale)
+        if new_tril is not None:
+            self.set_tril(new_tril)
+
+    def get_params(self) -> BNNParams:
+        return BNNParams(self.get_loc(), self.get_scale(), self.get_tril())
 
     def jacobian(self, inputs: Tensor, truncate: bool = None, reduction: str = None, **kwargs) -> Tensor:
         """

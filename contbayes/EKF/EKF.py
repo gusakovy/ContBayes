@@ -2,8 +2,8 @@ from tqdm import tqdm
 import torch
 from torch import Tensor
 from torch.nn.functional import one_hot
-from contbayes.BayesNN import FullCovBNN
-from contbayes.utils import reduce_tensor, multiple_categorical_cov
+from contbayes.BNN.BayesNN import FullCovBNN
+from contbayes.Utilities.utils import reduce_tensor, multiple_categorical_cov
 
 
 class Observation:
