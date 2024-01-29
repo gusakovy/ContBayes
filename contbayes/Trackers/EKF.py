@@ -4,6 +4,7 @@ from torch import Tensor
 from torch.nn.functional import one_hot
 from contbayes.BNN.BayesNN import FullCovBNN
 from contbayes.Utilities.utils import reduce_tensor, multiple_categorical_cov
+from contbayes.Detectors.BayesianDeepSIC import BayesianDeepSIC
 
 
 class Observation:
@@ -42,7 +43,7 @@ class EKF:
             self.obs_noise_cov = None
         else:
             assert obs_noise_cov is not None
-            self.obs_noise_cov = torch.tensor(obs_noise_cov)
+            self.obs_noise_cov = obs_noise_cov
         self.obs_reduction = obs_reduction
         self.filtered = False
         self.skip_counter = 0
@@ -141,14 +142,63 @@ class EKF:
     def predict_obs_cov(self, inputs):
         raise NotImplementedError
 
-    def run(self, obs_generator, num_iterations, n_obs=1, callback=None, verbose=True):
+    def run(self, dataloader, callback=None, verbose=True):
         self.skip_counter = 0
-        for i in tqdm(range(num_iterations)):
+        for i, data in enumerate(tqdm(dataloader)):
             self.predict_state()
-            inputs, outputs = obs_generator(n_obs)
+            inputs, outputs = data
             self.obs.update_observation(inputs, outputs)
             self.update_state()
             if callback is not None:
                 callback(iteration_num=i, net=self.obs_model, inputs=inputs, outputs=outputs)
         if verbose:
-            print(f"skipped {self.skip_counter}/{num_iterations} iterations")
+            print(f"skipped {self.skip_counter}/{len(dataloader)} iterations")
+
+
+class DeepsicEKF(EKF):
+    def __init__(self, detector: BayesianDeepSIC,
+                 state_model: float,
+                 process_noise_var: float,
+                 update_limit=0.1,
+                 obs_noise_cov: Tensor = None,
+                 obs_reduction: str = None):
+
+        super().__init__(detector.bnn_block, state_model, process_noise_var, update_limit, obs_noise_cov, obs_reduction)
+        self.detector = detector
+
+    def _update_block(self, layer_num, user_num) -> None:
+
+        self.obs_model.set_params(self.detector.param_matrix[user_num][layer_num])
+        self.predict_state()
+        self.update_state()
+        self.detector.param_matrix[user_num][layer_num] = self.obs_model.get_params()
+
+    def _update_layer(self, layer_num, rx, tx, pred=None) -> Tensor:
+        inputs = self.detector.pred_and_rx_to_input(layer_num, rx, pred)
+
+        for user_idx in range(self.detector.num_users):
+            user_indices = range((self.num_classes - 1) * user_idx, (self.num_classes - 1) * (user_idx + 1))
+            user_inputs = inputs[..., [i for i in range(self.detector.rx_size +
+                                                        (self.num_classes - 1) * self.detector.num_users)
+                                       if i not in user_indices]]
+            user_labels = tx[..., user_idx].squeeze()
+            self.obs.update_observation(user_inputs, user_labels)
+            self._update_block(layer_num=layer_num, user_num=user_idx)
+
+        return self.detector.layer_transition(layer_num, rx, pred)
+
+    def run(self, dataloader, callback=None, verbose=True):
+        self.skip_counter = 0
+        for i, data in enumerate(tqdm(dataloader)):
+            rx, labels = data
+            predictions = None
+            for layer_idx in range(self.detector.num_layers):
+                predictions = self._update_layer(layer_idx, rx, labels, predictions)
+            if callback is not None:
+                callback(iteration_num=i, detector=self.detector, inputs=rx, outputs=labels)
+        if verbose:
+            update_count = len(dataloader) * self.detector.num_layers * self.detector.num_users
+            print(f"skipped {self.skip_counter}/{update_count} iterations")
+
+    def predict_obs_cov(self, inputs):
+        raise NotImplementedError
