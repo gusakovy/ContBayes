@@ -189,8 +189,8 @@ class DeepsicEKF(EKF):
 
     def run(self, dataloader, callback=None, verbose=True):
         self.skip_counter = 0
-        for i, data in enumerate(tqdm(dataloader)):
-            rx, labels = data
+        for i, batch in enumerate(tqdm(dataloader)):
+            rx, labels = batch
             predictions = None
             for layer_idx in range(self.detector.num_layers):
                 predictions = self._update_layer(layer_idx, rx, labels, predictions)
