@@ -5,7 +5,6 @@ import pyro
 from pyro.infer.autoguide import AutoGuide
 import tyxe
 from tyxe.priors import Prior
-from tyxe.likelihoods import Likelihood
 from contbayes.Utilities.utils import scale_and_tril_to_cov, cov_to_scale_and_tril, autograd_jacobian
 
 
@@ -29,7 +28,7 @@ class FullCovBNN(tyxe.VariationalBNN):
                  output_dim: int,
                  net_builder: callable,
                  prior: Prior,
-                 likelihood: Likelihood,
+                 likelihood: tyxe.likelihoods.Likelihood,
                  guide_builder: AutoGuide):
 
         if model_type not in MODEL_TYPES:

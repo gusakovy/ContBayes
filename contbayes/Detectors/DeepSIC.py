@@ -1,4 +1,4 @@
-from dir_definitions import MODULATION_TYPE
+from config import MODULATION_TYPE
 from contbayes.Detectors.DeepSICblock import DeepSICblock
 
 import torch

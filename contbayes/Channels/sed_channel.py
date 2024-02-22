@@ -1,5 +1,5 @@
 import torch
-from dir_definitions import MODULATION_TYPE, H_COEF, LINEAR_CHANNEL
+from config import MODULATION_TYPE, H_COEF, LINEAR_CHANNEL
 Tensor = torch.tensor
 
 

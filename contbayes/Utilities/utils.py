@@ -71,14 +71,25 @@ def autograd_jacobian(model: nn.Module,
 
 def cov_to_scale_and_tril(cov: Tensor) -> tuple[Tensor, Tensor]:
     L_c = torch.linalg.cholesky(cov)
-    scale = torch.diagonal(L_c)
-    tril = torch.diag(L_c).pow(-1) * L_c
+    scale = torch.diag(L_c)
+    tril = torch.reciprocal(scale) * L_c
     return scale, tril
 
 
 def scale_and_tril_to_cov(scale: Tensor, tril: Tensor) -> Tensor:
     cov = tril @ torch.diag(scale).pow(2) @ tril.T
     return cov
+
+
+def cholesky_to_scale_and_tril(cholesky: Tensor) -> tuple[Tensor, Tensor]:
+    scale = torch.diag(cholesky)
+    tril = torch.reciprocal(scale) * cholesky
+    return scale, tril
+
+
+def scale_and_tril_to_cholesky(scale: Tensor, tril: Tensor) -> Tensor:
+    cholesky = scale * tril
+    return cholesky
 
 
 def categorical_cov(p: Tensor) -> Tensor:

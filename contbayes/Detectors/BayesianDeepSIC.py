@@ -1,6 +1,6 @@
 from contbayes.BNN.BayesNN import FullCovBNN
 from contbayes.Detectors.DeepSICblock import DeepSICblock
-from dir_definitions import MODULATION_TYPE
+from config import MODULATION_TYPE
 from functools import partial
 
 import torch
