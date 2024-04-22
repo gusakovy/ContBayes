@@ -1,55 +1,75 @@
-from contbayes.BNN.BayesNN import FullCovBNN
-from contbayes.Detectors.DeepSICblock import DeepSICblock
-from config import MODULATION_TYPE
 from functools import partial
-
 import torch
 from torch import Tensor
 import torch.utils.data as data
-
+from torch.utils.data import DataLoader
 import pyro
 import pyro.distributions as dist
-import pyro.infer.autoguide as ag
-
 import tyxe
+from contbayes.BNN.BayesNN import FullCovBNN
+from contbayes.Detectors.DeepSICblock import DeepSICblock
+
+MODULATION_TYPES = ["BPSK", "QPSK"]
 
 
 class BayesianDeepSIC:
+    """
+    Bayesian DeepSIC model where every block is a BayesNN module.
+
+    :param modulation_type: modulation type ("BPSK" or "QPSK")
+    :param num_users: number of users
+    :param num_ant: number of receive antennas
+    :param num_iterations: number of soft interference cancellation (SIC) iterations
+    :param hidden_dim: size of the hidden layer of each DeepSIC block
+    :param verbose: whether to print the structure of a DeepSIC block after initialization
+    """
+
     def __init__(self,
-                 num_classes: int,
+                 modulation_type: str,
                  num_users: int,
                  num_ant: int,
                  num_iterations: int,
                  hidden_dim: int,
                  verbose: bool = False):
-        self.num_classes = num_classes
+        if modulation_type not in MODULATION_TYPES:
+            raise ValueError(f"Modulation type must be one of {MODULATION_TYPES}.")
+        self.modulation_type = modulation_type
+        self.num_classes = 2 if self.modulation_type == "BPSK" else 4
         self.num_users = num_users
         self.num_ant = num_ant
         self.num_layers = num_iterations
-        self.rx_size = num_ant if MODULATION_TYPE == "BPSK" else 2 * self.num_ant
+        self.rx_size = num_ant if self.modulation_type == "BPSK" else 2 * self.num_ant
         self.verbose = verbose
         prior = tyxe.priors.IIDPrior(dist.Normal(0, 1))
         observation_model = tyxe.likelihoods.Categorical(dataset_size=1000, logit_predictions=False)
-        guide = partial(ag.AutoMultivariateNormal, init_scale=1e-4)
         self.bnn_block = FullCovBNN(model_type="classifier",
                                     output_dim=4,
                                     net_builder=partial(DeepSICblock,
-                                                        num_classes=self.num_classes,
+                                                        modulation_type=self.modulation_type,
                                                         num_users=self.num_users,
                                                         num_ant=self.num_ant,
                                                         hidden_dim=hidden_dim),
                                     prior=prior,
-                                    likelihood=observation_model,
-                                    guide_builder=guide)
+                                    likelihood=observation_model)
         # init parameters
         if self.verbose:
             print(self.bnn_block.torch_net)
         zero_input = torch.zeros(1, self.rx_size + (self.num_classes - 1) * (self.num_users-1))
-        self.bnn_block.predict(zero_input)
+        with torch.no_grad():
+            self.bnn_block.predict(zero_input)
         self.param_matrix = [[self.bnn_block.get_params() for _ in range(self.num_layers)]
                              for _ in range(self.num_users)]
 
-    def pred_and_rx_to_input(self, layer_num, rx, pred=None):
+    def pred_and_rx_to_input(self, layer_num: int, rx: Tensor, pred: Tensor = None) -> Tensor:
+        """
+        Prepare input for Bayesian DeepSIC model.
+
+        :param layer_num: layer number
+        :param rx: receive input
+        :param pred: prediction of the previous layer
+        :return: input for the BayesianDeepSIC model
+        """
+
         if layer_num == 0:
             input_dim = rx.size(0)
             initial_pred = (1 / self.num_classes) * torch.ones(1, (self.num_classes - 1) * self.num_users)
@@ -59,7 +79,17 @@ class BayesianDeepSIC:
             inputs = torch.cat([pred, rx], dim=1)
         return inputs
 
-    def layer_transition(self, layer_num, rx, pred=None, truncate=True) -> Tensor:
+    def layer_transition(self, layer_num: int, rx: Tensor, pred: Tensor = None, truncate: bool = True) -> Tensor:
+        """
+        Pass the data through a layer of the Bayesian DeepSIC model.
+
+        :param layer_num: layer number
+        :param rx: receive input
+        :param pred: prediction of the previous layer
+        :param truncate: whether to truncate the input to the number of classes (usually done for the last layer)
+        :return: output of the layer (aggregated predictions of the blocks in the layer)
+        """
+
         inputs = self.pred_and_rx_to_input(layer_num, rx, pred)
         if truncate:
             layer_outputs = torch.zeros(rx.size(0), (self.num_classes - 1) * self.num_users)
@@ -79,14 +109,24 @@ class BayesianDeepSIC:
 
         return layer_outputs.detach()
 
-    def predict(self, rx) -> Tensor:
+    def predict(self, rx: Tensor) -> Tensor:
+        """
+        Forward pass of the Bayesian DeepSIC model.
+
+        :param rx: receive input
+        :return: output of the DeepSIC model (aggregated predictions of the blocks in the last layer)
+        """
+
         rx = torch.atleast_2d(rx)
         predictions = None
         for layer_idx in range(self.num_layers):
             predictions = self.layer_transition(layer_idx, rx, predictions, truncate=(layer_idx < self.num_layers - 1))
         return predictions.view(-1, self.num_users, self.num_classes)
 
-    def _train_block(self, layer_num, user_num, dataloader, num_epochs=250, lr=7e-4, callback=None) -> None:
+    def _train_block(self, layer_num: int, user_num: int, dataloader: DataLoader, num_epochs: int = 250,
+                     lr: float = 7e-4, callback: callable = None):
+        """Train a single block of the Bayesian DeepSIC model using Stochastic Variational Inference (SVI)."""
+
         if self.verbose:
             print(f"Training block [user = {user_num}][layer = {layer_num}]")
         optimizer = pyro.optim.Adam({"lr": lr})
@@ -97,8 +137,9 @@ class BayesianDeepSIC:
                            callback=None if callback is None else partial(callback, user=user_num, layer=layer_num))
         self.param_matrix[user_num][layer_num] = self.bnn_block.get_params()
 
-    def _train_layer(self, layer_num, rx, labels, pred=None, num_epochs=250,
-                     lr=7e-4, batch_size=None, callback=None) -> Tensor:
+    def _train_layer(self, layer_num: int, rx: Tensor, labels: Tensor, pred: Tensor = None, num_epochs: int = 250,
+                     lr: float = 7e-4, batch_size: int = None, callback: callable = None) -> Tensor:
+        """Train a layer of the Bayesian DeepSIC model using Stochastic Variational Inference (SVI)."""
 
         inputs = self.pred_and_rx_to_input(layer_num, rx, pred)
         if batch_size is None:
@@ -121,7 +162,20 @@ class BayesianDeepSIC:
 
         return self.layer_transition(layer_num, rx, pred)
 
-    def fit(self, rx, labels, num_epochs=250, lr=7e-4, batch_size=None, callback=None) -> None:
+    def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 7e-4, batch_size: int = None,
+            callback: callable = None):
+        """
+        Train the Bayesian DeepSIC model using Stochastic Variational Inference (SVI).
+
+        :param rx: receive input
+        :param labels: labels of the data
+        :param num_epochs: number of training epochs
+        :param lr: learning rate
+        :param batch_size: batch size
+        :param callback: callback function with input variables bnn, i, e, user_num, layer_num (passed into _train_block
+             for each DeepSIC block)
+        """
+
         predictions = None
         for layer_idx in range(self.num_layers):
             predictions = self._train_layer(layer_num=layer_idx,
@@ -133,17 +187,37 @@ class BayesianDeepSIC:
                                             batch_size=batch_size,
                                             callback=callback)
 
-    def test_model(self, rx, labels):
+    def test_model(self, rx: Tensor, labels: Tensor) -> tuple[Tensor, Tensor]:
+        """
+        Compute the bit error rate and confidence of the model on the test data.
+
+        :param rx: receive input
+        :param labels: labels of the data
+        :return: bit error rate and confidence of the model on the test data
+        """
+
         predictions = self.predict(rx)
         confidence = predictions.max(-1).values.mean()
         hard_decisions = predictions.argmax(-1)
         bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 4)
-        bits_per_symbol = 1 if MODULATION_TYPE == "BPSK" else 2
+        bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
         bit_error_rate = bit_errors / (labels.numel() * bits_per_symbol)
         return bit_error_rate, confidence
 
-    def save_model(self, path):
+    def save_model(self, path: str):
+        """
+        Save the model to disk.
+
+        :param path: path to save the model to
+        """
+
         torch.save(self.param_matrix, path)
 
-    def load_model(self, path):
+    def load_model(self, path: str):
+        """
+        Load the model from disk.
+
+        :param path: path to load the model from
+        """
+
         self.param_matrix = torch.load(path)
