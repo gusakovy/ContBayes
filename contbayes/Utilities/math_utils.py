@@ -77,7 +77,7 @@ def cov_to_scale_and_tril(cov: Tensor) -> tuple[Tensor, Tensor]:
 
 
 def scale_and_tril_to_cov(scale: Tensor, tril: Tensor) -> Tensor:
-    cov = tril @ torch.diag(scale).pow(2) @ tril.T
+    cov = (tril * scale.pow(2)) @ tril.T
     return cov
 
 

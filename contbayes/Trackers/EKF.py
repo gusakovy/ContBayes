@@ -44,6 +44,8 @@ class SkipCounter:
 
     def __init__(self, categories: list | tuple | str):
         self.total_skipped = 0
+        if isinstance(categories, str):
+            categories = [categories]
         self.skip_dict = {category: 0 for category in categories}
 
     def increment(self, categories: list | tuple | str):
@@ -99,7 +101,7 @@ class EKF:
             self.obs_noise_cov = obs_noise_cov
         self.obs_reduction = obs_reduction
         self.filtered = False
-        self.skip_counter = SkipCounter(categories=['S', 'Cholesky', 'Delta', 'Non-positive'])
+        self.skip_counter = SkipCounter(categories=['S', 'Cholesky', 'Delta'])
 
     def predict_state(self):
         """Predict step for the extended Kalman filter."""
@@ -194,27 +196,17 @@ class EKF:
         old_norm = torch.linalg.vector_norm(m)
         diff_norm = torch.linalg.vector_norm(m - loc_filtered)
         change = diff_norm / old_norm
-        eig, _ = torch.lobpcg(cov_filtered, k=1, largest=False)
 
-        delta_cond = abs(change) < self.update_limit
-        pos_def_cond = eig.item() > 1e-6
-
-        if delta_cond and pos_def_cond:
+        if abs(change) < self.update_limit:
             try:
                 self.obs_model.set_cov(cov_filtered)
                 self.obs_model.set_loc(loc_filtered)
             except RuntimeError:
-                print("It happened")
                 self.obs_model.set_loc(m)
                 self.obs_model.set_cov(P)
                 self.skip_counter.increment('Cholesky')
         else:
-            if not delta_cond and not pos_def_cond:
-                self.skip_counter.increment(['Delta', 'Non-positive'])
-            elif not delta_cond:
-                self.skip_counter.increment('Delta')
-            else:
-                self.skip_counter.increment('Non-positive')
+            self.skip_counter.increment('Delta')
 
         self.filtered = True
 
