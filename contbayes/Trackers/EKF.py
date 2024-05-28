@@ -4,7 +4,7 @@ from torch import Tensor
 from torch.nn.functional import one_hot
 from torch.utils.data import DataLoader
 from contbayes.BNN.BayesNN import FullCovBNN
-from contbayes.Utilities.utils import reduce_tensor, multiple_categorical_cov
+from contbayes.Utilities.math_utils import reduce_tensor, multiple_categorical_cov
 from contbayes.Detectors.BayesianDeepSIC import BayesianDeepSIC
 
 
