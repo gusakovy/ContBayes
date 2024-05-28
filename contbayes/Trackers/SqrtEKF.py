@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from contbayes.BNN.BayesNN import FullCovBNN
 from contbayes.Detectors.BayesianDeepSIC import BayesianDeepSIC
 from contbayes.Trackers.EKF import EKF, SkipCounter
-import contbayes.Utilities.utils as utils
+import contbayes.Utilities.math_utils as utils
 
 
 class SqrtEKF(EKF):

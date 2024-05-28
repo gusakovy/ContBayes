@@ -7,7 +7,7 @@ import pyro
 import pyro.infer.autoguide as ag
 import tyxe
 from tyxe.priors import Prior
-from contbayes.Utilities.utils import scale_and_tril_to_cov, cov_to_scale_and_tril, autograd_jacobian
+from contbayes.Utilities.math_utils import scale_and_tril_to_cov, cov_to_scale_and_tril, autograd_jacobian
 
 
 MODEL_TYPES = [
