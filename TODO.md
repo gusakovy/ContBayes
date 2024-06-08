@@ -3,13 +3,11 @@
 ### Pending
 
 - [ ] Implement Unscented Kalman Filter.
-- [ ] Implement new DeepSIC regressor architecture.
 
 ### In Progress
 
-- [ ] Write a test function to run experiments on DeepSIC models.
-- [ ] Implement plotters which will use data from the DeepSIC experiment results database.
 - [ ] Rework the confidence computation in `DeepSIC` and `BayesianDeepSIC`.
+- [ ] Implement new DeepSIC regressor architecture.
 
 ### Done ✓
 
@@ -20,3 +18,5 @@
     - [x] Remove all non-specific import statements.
 - [x] Start working with config files for running tests.
 - [x] Create a database to save experiment results.
+- [x] Write a test function to run experiments on DeepSIC models.
+- [x] Implement plotters which will use data from the DeepSIC experiment results database.

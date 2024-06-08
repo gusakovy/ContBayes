@@ -1,0 +1,42 @@
+general:
+  version: 0.1
+  seed: 42
+  device: 'cpu'
+
+channel:
+  channel_type: 'Synthetic'
+  linear: False
+  num_users: 4
+  num_antennas: 4
+  fading_coefficient: 0.75
+  warm_start_snr: 13
+  tracking_snr: 13
+  constellation: 'QPSK'
+  num_blocks: 115
+
+warm_start:
+  lr: 0.0007
+  training_epochs: 400
+  training_dim: 2000
+  training_batch_size: 400
+  test_dim: 100000
+
+deepsic:
+  num_layers: 4
+  hidden_size: 48
+
+tracking:
+  tracking_method: ['Nothing', 'EKF', 'SqrtEKF', 'SVI', 'GD']
+  num_pilots: 128
+  num_epochs: 1
+  num_batches: 1
+
+ekf:
+  state_model: 0.999
+  process_noise_var: 0.000001
+  update_limit: 0.1
+  diag_loading: 0
+  reduction: 'label'
+
+log:
+  test_each_block: False
