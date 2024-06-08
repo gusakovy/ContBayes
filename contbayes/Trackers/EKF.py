@@ -74,6 +74,7 @@ class EKF:
     :param obs_model: observation model (FullCovBNN)
     :param state_model: state model (scalar)
     :param process_noise_var: process noise variance (scalar)
+    :param diag_loading: diagonal loading factor for observation noise covariance
     :param update_limit: allowed delta of state update
     :param obs_noise_cov: observation noise covariance
     :param obs_reduction: reduction method for the observation model
@@ -83,6 +84,7 @@ class EKF:
                  obs_model: FullCovBNN,
                  state_model: float,
                  process_noise_var: float,
+                 diag_loading: float = 0.0,
                  update_limit: float = 0.1,
                  obs_noise_cov: Tensor | None = None,
                  obs_reduction: str = None):
@@ -91,6 +93,7 @@ class EKF:
         self.num_classes = obs_model.output_dim
         self.state_model = torch.tensor(state_model)
         self.process_noise_var = torch.tensor(process_noise_var)
+        self.diag_loading = diag_loading
         self.update_limit = update_limit
         self.obs = Observation()
         if self.obs_model.type == "classifier":
@@ -146,6 +149,8 @@ class EKF:
                                              num_classes=self.num_classes,
                                              reduction=self.obs_reduction,
                                              labels=self.obs.outputs)
+
+                R = R + self.diag_loading * torch.eye(R.size(0))
 
             case _:
                 y_hat = torch.atleast_2d(self.predict_outputs(self.obs.inputs))
@@ -216,7 +221,7 @@ class EKF:
 
         :param dataloader: Dataloader containing observations. Each batch in dataloader is assumed to be a batch of
             observations for the respective time frame
-        :param callback: callback function for tracking progress with three input variables: iteration_num, net,
+        :param callback: callback function for tracking progress with input variables iteration_num, net,
             inputs, outputs
         :param verbose: whether to print the amount of skipped iterations at the end of tracking
         """
@@ -249,9 +254,11 @@ class DeepsicEKF(EKF):
                  state_model: float,
                  process_noise_var: float,
                  update_limit: float = 0.1,
+                 diag_loading: float = 0.0,
                  obs_reduction: str = None):
 
-        super().__init__(detector.bnn_block, state_model, process_noise_var, update_limit, None, obs_reduction)
+        super().__init__(detector.bnn_block, state_model, process_noise_var, diag_loading,
+                         update_limit, None, obs_reduction)
         self.detector = detector
 
     def _update_block(self, layer_num: int, user_num: int):
@@ -291,7 +298,7 @@ class DeepsicEKF(EKF):
 
         :param dataloader: Dataloader containing observations. Each batch in dataloader is assumed to be a batch of
             observations for the respective time frame
-        :param callback: callback function for tracking progress with three input variables: iteration_num, detector,
+        :param callback: callback function for tracking progress with input variables iteration_num, detector,
             inputs, outputs
         :param verbose: whether to print the amount of skipped iterations at the end of tracking
         """

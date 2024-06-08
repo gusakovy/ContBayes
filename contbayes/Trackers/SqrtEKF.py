@@ -16,11 +16,13 @@ class SqrtEKF(EKF):
                  obs_model: FullCovBNN,
                  state_model: float,
                  process_noise_var: float,
+                 diag_loading: float = 0.0,
                  update_limit: float = 0.1,
                  obs_noise_cov: Tensor = None,
                  obs_reduction: str = None):
 
-        super().__init__(obs_model, state_model, process_noise_var, update_limit, obs_noise_cov, obs_reduction)
+        super().__init__(obs_model, state_model, process_noise_var, diag_loading,
+                         update_limit, obs_noise_cov, obs_reduction)
         self.skip_counter = SkipCounter(['QR', 'Delta'])
 
     def predict_state(self):
@@ -59,7 +61,7 @@ class SqrtEKF(EKF):
                                                    num_classes=self.num_classes,
                                                    reduction=self.obs_reduction,
                                                    labels=self.obs.outputs)
-                R = R + 1e-2 * torch.eye(R.size(0))
+                R = R + self.diag_loading * torch.eye(R.size(0))
                 R_c = torch.linalg.cholesky(R)
 
             case _:
@@ -124,7 +126,7 @@ class SqrtEKF(EKF):
 
         :param dataloader: Dataloader containing observations. Each batch in dataloader is assumed to be a batch of
             observations for the respective time frame
-        :param callback: callback function for tracking progress with three input variables: iteration_num, net,
+        :param callback: callback function for tracking progress with input variables iteration_num, net,
             inputs, outputs
         :param verbose: whether to print the amount of skipped iterations at the end of tracking
         """
@@ -155,10 +157,12 @@ class DeepsicSqrtEKF(SqrtEKF):
     def __init__(self, detector: BayesianDeepSIC,
                  state_model: float,
                  process_noise_var: float,
+                 diag_loading: float = 0.0,
                  update_limit: float = 0.1,
                  obs_reduction: str = None):
 
-        super().__init__(detector.bnn_block, state_model, process_noise_var, update_limit, None, obs_reduction)
+        super().__init__(detector.bnn_block, state_model, process_noise_var, diag_loading,
+                         update_limit, None, obs_reduction)
         self.detector = detector
 
     def _update_block(self, layer_num: int, user_num: int) -> None:
@@ -197,7 +201,7 @@ class DeepsicSqrtEKF(SqrtEKF):
 
         :param dataloader: Dataloader containing observations. Each batch in dataloader is assumed to be a batch of
             observations for the respective time frame
-        :param callback: callback function for tracking progress with three input variables: iteration_num, detector,
+        :param callback: callback function for tracking progress with input variables iteration_num, detector,
             inputs, outputs
         :param verbose: whether to print the amount of skipped iterations at the end of tracking
         """
