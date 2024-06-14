@@ -43,7 +43,9 @@ def prepare_single_batch(channel, num_samples: int, frame_idx: int, snr: int) ->
     num_classes = 2 if channel.modulation_type == 'BPSK' else 4
     labels = torch.tensor(np.random.choice(a=np.array(range(num_classes)),
                                            size=(num_samples, num_users)), dtype=torch.int64)
-    rx = torch.view_as_real(channel.transmit(s=labels, snr=snr, frame_ind=frame_idx).T)
+    rx = channel.transmit(s=labels, snr=snr, frame_ind=frame_idx).T
+    if channel.modulation_type != 'BPSK':
+        rx = torch.view_as_real(rx)
     rx = rx.reshape(num_samples, -1)
 
     return rx, labels

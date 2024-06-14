@@ -23,7 +23,7 @@ class SEDChannel:
         self.modulation_type = modulation_type
         self.num_users = num_users
         self.num_antennas = num_antennas
-        self.constellation_points = torch.tensor([-1, 1], dtype=torch.complex64) if self.modulation_type == "BPSK"\
+        self.constellation_points = torch.tensor([-1, 1], dtype=torch.float) if self.modulation_type == "BPSK"\
             else torch.tensor([[math.cos(math.pi * (k + 1/2) / 2) +
                                 math.sin(math.pi * (k + 1/2) / 2) * 1j] for k in range(4)], dtype=torch.complex64)
         self.fading_coefficient = fading_coefficient
@@ -61,7 +61,7 @@ class SEDChannel:
         """
         Simulate transmission of symbols.
 
-        :param s: symbols be transmitted
+        :param s: symbols to be transmitted
         :param snr: signal-to-noise ratio
         :param frame_ind: time frame index
         :return: transmitted signal
@@ -76,7 +76,7 @@ class SEDChannel:
         conv = SEDChannel._compute_channel_signal_convolution(h, tx)
         var = 10 ** (-0.1 * snr)
         if self.modulation_type == "BPSK":
-            w = torch.sqrt(torch.tensor(var)) * torch.randn(self.num_antennas, tx.size(1))
+            w = torch.sqrt(torch.tensor(var)) * torch.randn(self.num_antennas, tx.size(0))
         else:
             w_real = torch.sqrt(torch.tensor(var)) / 2 * torch.randn(self.num_antennas, tx.size(0))
             w_imag = torch.sqrt(torch.tensor(var)) / 2 * torch.randn(self.num_antennas, tx.size(0)) * 1j

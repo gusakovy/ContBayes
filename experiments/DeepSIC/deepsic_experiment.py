@@ -75,14 +75,14 @@ class DeepsicExperiment(Experiment):
                                           state_model=self.params['state_model'],
                                           process_noise_var=self.params['process_noise_var'],
                                           diag_loading=self.params['diag_loading'],
-                                          update_limit=0.1,
+                                          update_limit=self.params['update_limit'],
                                           obs_reduction=self.params['reduction'])
             case 'SqrtEKF':
                 self.tracker = DeepsicSqrtEKF(detector=self.model,
                                               state_model=self.params['state_model'],
                                               process_noise_var=self.params['process_noise_var'],
                                               diag_loading=self.params['diag_loading'],
-                                              update_limit=0.1,
+                                              update_limit=self.params['update_limit'],
                                               obs_reduction=self.params['reduction'])
 
             case 'Nothing':
@@ -100,7 +100,8 @@ class DeepsicExperiment(Experiment):
                                        'bayesian' if self.params['tracking_method'] != 'GD' else 'frequentist')
 
         try:
-            self.model.load_model(os.path.join(warm_start_path, f"warm_start_{self.params['num_users']}_"
+            self.model.load_model(os.path.join(warm_start_path, f"{self.params['constellation']}_"
+                                                                f"{self.params['num_users']}_"
                                                                 f"{self.params['num_layers']}_"
                                                                 f"{self.params['hidden_size']}.pt"))
         except FileNotFoundError:
@@ -124,7 +125,8 @@ class DeepsicExperiment(Experiment):
                            batch_size=self.params['training_batch_size'],
                            callback=partial(loss_callback, losses=losses))
 
-            self.model.save_model(os.path.join(warm_start_path, f"warm_start_{self.params['num_users']}_"
+            self.model.save_model(os.path.join(warm_start_path, f"{self.params['constellation']}_"
+                                                                f"{self.params['num_users']}_"
                                                                 f"{self.params['num_layers']}_"
                                                                 f"{self.params['hidden_size']}.pt"))
 
@@ -138,7 +140,8 @@ class DeepsicExperiment(Experiment):
             if not os.path.exists(os.path.join(warm_start_path, "loss_curves")):
                 os.makedirs(os.path.join(warm_start_path, "loss_curves"))
 
-            plt.savefig(os.path.join(warm_start_path, "loss_curves", f"warm_start_{self.params['num_users']}_"
+            plt.savefig(os.path.join(warm_start_path, "loss_curves", f"{self.params['constellation']}_"
+                                                                     f"{self.params['num_users']}_"
                                                                      f"{self.params['num_layers']}_"
                                                                      f"{self.params['hidden_size']}.svg"),
                         dpi=200, format='svg')
