@@ -7,12 +7,18 @@ REDUCTION_TYPES = [
     "label"
 ]
 
+NORM_TYPES = [
+    "mean",
+    "square"
+]
+
 
 def autograd_jacobian(model: nn.Module,
                       inputs: Tensor,
                       output_dim: int,
                       truncate: bool,
                       reduction: str = None,
+                      normalization: str = None,
                       **kwargs):
     """
     Returns the Jacobian of the model with respect to its weights. If multiple inputs are given, the jacobian
@@ -23,6 +29,7 @@ def autograd_jacobian(model: nn.Module,
     :param output_dim: Dimension of the Neural Network output
     :param truncate: Flag specifying if the last dimension of the categorical output should be truncated
     :param reduction: Specifies the reduction to apply to the output: 'label' for per-label sum or None.
+    :param normalization: Specifies the normalization to apply after reduction: 'mean' or None.
     :return Jacobian: Matrix of the model with respect to its weights
     """
 
@@ -43,7 +50,10 @@ def autograd_jacobian(model: nn.Module,
             Jacobian = torch.zeros(num_distinct_labels * out_dim, n_params)
 
             for label_idx, label in enumerate(distinct_labels):
-                outputs = model(inputs[torch.where(labels == label)]).sum(dim=0)
+                if normalization == "mean":
+                    outputs = model(inputs[torch.where(labels == label)]).mean(dim=0)
+                else:
+                    outputs = model(inputs[torch.where(labels == label)]).sum(dim=0)
                 for class_idx in range(out_dim):
                     entry_idx = 0
                     model.zero_grad()
@@ -97,7 +107,7 @@ def categorical_cov(p: Tensor) -> Tensor:
     return cov
 
 
-def multiple_categorical_cov(prob_vector: Tensor, num_classes, reduction=None, **kwargs):
+def multiple_categorical_cov(prob_vector: Tensor, num_classes, reduction=None, normalization=None, **kwargs):
     prob_vector = prob_vector.flatten()
     num_obs = prob_vector.size(0) // (num_classes - 1)
     full_cov = categorical_cov(prob_vector)
@@ -107,7 +117,7 @@ def multiple_categorical_cov(prob_vector: Tensor, num_classes, reduction=None, *
 
     match reduction:
         case "label":
-            cov = reduce_tensor(cov_column, "label", **kwargs)
+            cov = reduce_tensor(cov_column, normalization="square" if normalization == "mean" else None, **kwargs)
             cov = torch.block_diag(*list(cov))
             return cov
         case None:
@@ -117,18 +127,28 @@ def multiple_categorical_cov(prob_vector: Tensor, num_classes, reduction=None, *
             raise ValueError(f"Unrecognized reduction method. Recognised reductions: {REDUCTION_TYPES}")
 
 
-def reduce_tensor(inputs: Tensor, reduction=None, **kwargs):
-    match reduction:
-        case "label":
-            if "labels" not in kwargs.keys():
-                raise ValueError('No labels provided')
-            labels = kwargs["labels"]
-            assert labels.size(0) == inputs.size(0)
-            distinct_labels = sorted(set(labels.tolist()))
-            reduced_tensor = torch.stack([torch.sum(inputs[torch.where(labels == label)], dim=0)
-                                          for label in distinct_labels])
-            return reduced_tensor
-        case None:
-            return inputs
-        case _:
-            raise ValueError(f"Unrecognized reduction method. Recognised reductions: {REDUCTION_TYPES}")
+def reduce_tensor(inputs: Tensor, normalization = None, **kwargs):
+
+        if "labels" not in kwargs.keys():
+            raise ValueError('No labels provided')
+
+
+        labels = kwargs["labels"]
+        assert labels.size(0) == inputs.size(0)
+        distinct_labels = sorted(set(labels.tolist()))
+
+        match normalization:
+            case None:
+                counts = {label:1 for label in distinct_labels}
+            case "mean":
+                counts = {label:torch.sum(labels == label, dim=0) for label in distinct_labels}
+            case "square":
+                counts = {label:torch.sum(labels == label, dim=0).pow(2) for label in distinct_labels}
+            case _:
+                raise ValueError(f"Unrecognized normalization method. Recognised reductions: {NORM_TYPES}")
+
+
+        reduced_tensor = torch.stack([torch.sum(inputs[torch.where(labels == label)], dim=0) / counts[label]
+                                      for label in distinct_labels])
+
+        return reduced_tensor

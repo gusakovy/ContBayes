@@ -43,7 +43,7 @@ class BayesianDeepSIC:
         prior = tyxe.priors.IIDPrior(dist.Normal(0, 1))
         observation_model = tyxe.likelihoods.Categorical(dataset_size=1000, logit_predictions=False)
         self.bnn_block = FullCovBNN(model_type="classifier",
-                                    output_dim=4,
+                                    output_dim=self.num_classes,
                                     net_builder=partial(DeepSICblock,
                                                         modulation_type=self.modulation_type,
                                                         num_users=self.num_users,
@@ -124,7 +124,7 @@ class BayesianDeepSIC:
         return predictions.view(-1, self.num_users, self.num_classes)
 
     def _train_block(self, layer_num: int, user_num: int, dataloader: DataLoader, num_epochs: int = 250,
-                     lr: float = 7e-4, callback: callable = None):
+                     lr: float = 1e-3, callback: callable = None):
         """Train a single block of the Bayesian DeepSIC model using Stochastic Variational Inference (SVI)."""
 
         if self.verbose:
@@ -138,7 +138,7 @@ class BayesianDeepSIC:
         self.param_matrix[user_num][layer_num] = self.bnn_block.get_params()
 
     def _train_layer(self, layer_num: int, rx: Tensor, labels: Tensor, pred: Tensor = None, num_epochs: int = 250,
-                     lr: float = 7e-4, batch_size: int = None, callback: callable = None) -> Tensor:
+                     lr: float = 1e-3, batch_size: int = None, callback: callable = None) -> Tensor:
         """Train a layer of the Bayesian DeepSIC model using Stochastic Variational Inference (SVI)."""
 
         inputs = self.pred_and_rx_to_input(layer_num, rx, pred)
@@ -162,7 +162,7 @@ class BayesianDeepSIC:
 
         return self.layer_transition(layer_num, rx, pred)
 
-    def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 7e-4, batch_size: int = None,
+    def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 1e-3, batch_size: int = None,
             callback: callable = None):
         """
         Train the Bayesian DeepSIC model using Stochastic Variational Inference (SVI).
@@ -199,7 +199,7 @@ class BayesianDeepSIC:
         predictions = self.predict(rx)
         confidence = predictions.max(-1).values.mean()
         hard_decisions = predictions.argmax(-1)
-        bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 4)
+        bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 3)
         bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
         bit_error_rate = bit_errors / (labels.numel() * bits_per_symbol)
         return bit_error_rate, confidence

@@ -1,5 +1,5 @@
 general:
-  version: 0.1
+  version: 0.2
   seed: 42
   device: 'cpu'
 
@@ -10,26 +10,27 @@ channel:
   num_antennas: 4
   fading_coefficient: 0.75
   warm_start_snr: 13
-  tracking_snr: 13
+  tracking_snr: [9, 11, 13, 15]
   constellation: 'QPSK'
-  num_blocks: 115
+  num_blocks: 180
 
 warm_start:
-  lr: 0.0007
-  training_epochs: 400
-  training_dim: 2000
-  training_batch_size: 400
+  training_lr: 0.001
+  training_epochs: 25
+  training_dim: 2048
+  training_batch_size: 32
   test_dim: 100000
 
 deepsic:
   num_layers: 4
-  hidden_size: 48
+  hidden_size: 12
 
 tracking:
   tracking_method: ['Nothing', 'EKF', 'SqrtEKF', 'SVI', 'GD']
   num_pilots: 128
   num_epochs: 1
   num_batches: 1
+  tracking_lr: 0.001
 
 ekf:
   state_model: 0.999
@@ -37,6 +38,7 @@ ekf:
   update_limit: 0.1
   diag_loading: 0
   reduction: 'label'
+  normalization: 'mean'
 
 log:
   test_each_block: False

@@ -175,7 +175,8 @@ class FullCovBNN(tyxe.VariationalBNN):
         if new_tril is not None:
             self.set_tril(new_tril)
 
-    def jacobian(self, inputs: Tensor, truncate: bool = None, reduction: str = None, labels: Tensor = None) -> Tensor:
+    def jacobian(self, inputs: Tensor, truncate: bool = None, reduction: str = None, normalization: str = None,
+                 labels: Tensor = None) -> Tensor:
         """
         Compute the Jacobian of the model with respect to its weights. If multiple inputs are given, the jacobian
         matrices are concatenated along the first dimension.
@@ -184,6 +185,7 @@ class FullCovBNN(tyxe.VariationalBNN):
         :param truncate: whether to truncate the last dimension the Jacobian (intended for classifiers)
         :param reduction: reduction method for the Jacobian. For 'label' reduction, an additional
             keyword argument 'labels' of the labels corresponding to the inputs is necessary to perform the reduction
+        :param normalization: normalization to be applied after reduction: 'mean' or None
         :param labels: labels necessary to perform per-label reduction
         :return: Jacobian of the model with respect to its weights
         """
@@ -202,4 +204,5 @@ class FullCovBNN(tyxe.VariationalBNN):
                                  output_dim=self.output_dim,
                                  truncate=truncate,
                                  reduction=reduction,
+                                 normalization=normalization,
                                  labels=labels if reduction == 'label' else None)

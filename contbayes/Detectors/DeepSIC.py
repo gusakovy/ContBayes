@@ -16,7 +16,7 @@ class DeepSIC:
     :param num_users: number of users
     :param num_ant: number of receive antennas
     :param num_iterations: number of soft interference cancellation (SIC) iterations
-    :param hidden_dim: size of the hidden layer of each DeepSIC block divided by the number of classes
+    :param hidden_dim: size of the hidden layer of each DeepSIC block
     :param verbose: whether to print the structure of the DeepSIC block after initialization
     """
 
@@ -106,7 +106,7 @@ class DeepSIC:
         return predictions.view(-1, self.num_users, self.num_classes)
 
     def _train_block(self, layer_num: int, user_num: int, dataloader: DataLoader, num_epochs: int = 250,
-                     lr: float = 7e-4, callback: callable = None):
+                     lr: float = 1e-3, callback: callable = None):
         """Train a single block of the DeepSIC model using Stochastic Gradient Descent (SGD)."""
 
         if self.verbose:
@@ -128,7 +128,7 @@ class DeepSIC:
                          user_num=user_num, layer_num=layer_num)
 
     def _train_layer(self, layer_num: int, rx: Tensor, labels: Tensor, pred: Tensor = None, num_epochs: int = 250,
-                     lr: float = 7e-4, batch_size: int = None, callback: callable = None) -> Tensor:
+                     lr: float = 1e-3, batch_size: int = None, callback: callable = None) -> Tensor:
         """Train a layer of the DeepSIC model using Stochastic Gradient Descent (SGD)."""
 
         inputs = self.pred_and_rx_to_input(layer_num, rx, pred)
@@ -152,7 +152,7 @@ class DeepSIC:
 
         return self.layer_transition(layer_num, rx, pred)
 
-    def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 7e-4,
+    def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 1e-3,
             batch_size: int = None, callback: callable = None):
         """
         Train the DeepSIC model using Stochastic Gradient Descent (SGD).
@@ -189,7 +189,7 @@ class DeepSIC:
         predictions = self.predict(rx)
         confidence = predictions.max(-1).values.mean()
         hard_decisions = predictions.argmax(-1)
-        bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 4)
+        bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 3)
         bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
         bit_error_rate = bit_errors / (labels.numel() * bits_per_symbol)
         return bit_error_rate, confidence
