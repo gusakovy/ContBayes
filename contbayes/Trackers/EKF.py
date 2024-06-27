@@ -87,7 +87,8 @@ class EKF:
                  diag_loading: float = 0.0,
                  update_limit: float = 0.1,
                  obs_noise_cov: Tensor | None = None,
-                 obs_reduction: str = None):
+                 obs_reduction: str = None,
+                 obs_normalization: str = None):
 
         self.obs_model = obs_model
         self.num_classes = obs_model.output_dim
@@ -103,6 +104,7 @@ class EKF:
                 raise ValueError("Missing observation noise covariance matrix")
             self.obs_noise_cov = obs_noise_cov
         self.obs_reduction = obs_reduction
+        self.obs_normalization = obs_normalization
         self.filtered = False
         self.skip_counter = SkipCounter(categories=['S', 'Cholesky', 'Delta'])
 
@@ -148,6 +150,7 @@ class EKF:
                 R = multiple_categorical_cov(prob_vector=y_hat,
                                              num_classes=self.num_classes,
                                              reduction=self.obs_reduction,
+                                             normalization=self.obs_normalization,
                                              labels=self.obs.outputs)
 
                 R = R + self.diag_loading * torch.eye(R.size(0))
@@ -157,21 +160,24 @@ class EKF:
                 y_true = self.obs.outputs
                 R = self.obs_noise_cov
 
-        H = self.obs_model.jacobian(self.obs.inputs, reduction=self.obs_reduction, labels=self.obs.outputs)
+        H = self.obs_model.jacobian(self.obs.inputs,
+                                    reduction=self.obs_reduction,
+                                    normalization=self.obs_normalization,
+                                    labels=self.obs.outputs)
 
         if self.obs_reduction is not None:
             y_true = reduce_tensor(y_true.view(self.obs.num_obs, self.num_classes - 1),
-                                   reduction=self.obs_reduction,
+                                   normalization=self.obs_normalization,
                                    num_classes=self.num_classes,
                                    labels=self.obs.outputs).view(-1, 1)
             y_hat = reduce_tensor(y_hat.view(self.obs.num_obs, self.num_classes - 1),
-                                  reduction=self.obs_reduction,
+                                  normalization=self.obs_normalization,
                                   num_classes=self.num_classes,
                                   labels=self.obs.outputs).view(-1, 1)
 
         e = y_true - y_hat
-
         S = H @ P @ H.T + R
+
         if torch.allclose(S, torch.zeros(S.size()), atol=1e-4):
             self.skip_counter.increment('S')
             self.filtered = True
@@ -255,10 +261,11 @@ class DeepsicEKF(EKF):
                  process_noise_var: float,
                  update_limit: float = 0.1,
                  diag_loading: float = 0.0,
-                 obs_reduction: str = None):
+                 obs_reduction: str = None,
+                 obs_normalization: str = None):
 
         super().__init__(detector.bnn_block, state_model, process_noise_var, diag_loading,
-                         update_limit, None, obs_reduction)
+                         update_limit, None, obs_reduction, obs_normalization)
         self.detector = detector
 
     def _update_block(self, layer_num: int, user_num: int):

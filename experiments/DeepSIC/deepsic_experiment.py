@@ -68,7 +68,8 @@ class DeepsicExperiment(Experiment):
             case 'SVI' | 'GD':
                 self.tracker = DeepsicTracker(detector=self.model,
                                               num_epochs=self.params['num_epochs'],
-                                              num_batches=self.params['num_batches'])
+                                              num_batches=self.params['num_batches'],
+                                              learning_rate=self.params['tracking_lr'])
 
             case 'EKF':
                 self.tracker = DeepsicEKF(detector=self.model,
@@ -76,14 +77,20 @@ class DeepsicExperiment(Experiment):
                                           process_noise_var=self.params['process_noise_var'],
                                           diag_loading=self.params['diag_loading'],
                                           update_limit=self.params['update_limit'],
-                                          obs_reduction=self.params['reduction'])
+                                          obs_reduction=self.params['reduction'] if
+                                              self.params['reduction'] != '-' else None,
+                                          obs_normalization=self.params['normalization'] if
+                                              self.params['normalization'] != 'none' else None)
             case 'SqrtEKF':
                 self.tracker = DeepsicSqrtEKF(detector=self.model,
                                               state_model=self.params['state_model'],
                                               process_noise_var=self.params['process_noise_var'],
                                               diag_loading=self.params['diag_loading'],
                                               update_limit=self.params['update_limit'],
-                                              obs_reduction=self.params['reduction'])
+                                              obs_reduction=self.params['reduction'] if
+                                                  self.params['reduction'] != '-' else None,
+                                              obs_normalization=self.params['normalization'] if
+                                                  self.params['normalization'] != 'none' else None)
 
             case 'Nothing':
                 self.tracker = None
@@ -121,9 +128,28 @@ class DeepsicExperiment(Experiment):
             loss_callback = bayesian_deepsic_loss_callback if self.params['tracking_method'] != 'GD' \
                 else deepsic_loss_callback
 
-            self.model.fit(rx=rx, labels=labels, num_epochs=self.params['training_epochs'], lr=self.params['lr'],
+            self.runtime = time.time()
+            self.model.fit(rx=rx, labels=labels, num_epochs=self.params['training_epochs'],
+                           lr=self.params['training_lr'],
                            batch_size=self.params['training_batch_size'],
                            callback=partial(loss_callback, losses=losses))
+            self.runtime = time.time() - self.runtime
+
+            rx, labels = prepare_single_batch(channel=self.channel,
+                                              num_samples=self.params['test_dim'],
+                                              frame_idx=0,
+                                              snr=self.params['warm_start_snr'])
+            ber, confidence = self.model.test_model(rx=rx, labels=labels)
+
+            with open(os.path.join(warm_start_path, f"{self.params['constellation']}_"
+                                                    f"{self.params['num_users']}_"
+                                                    f"{self.params['num_layers']}_"
+                                                    f"{self.params['hidden_size']}.txt"), 'w') as file:
+
+                file.write(f"Parameters\nTraining size: {self.params['training_dim']}\n"
+                           f"Epochs: {self.params['training_epochs']}\nBatch size: {self.params['training_batch_size']}"
+                           f"\nLearning Rate: {self.params['training_lr']}\n\n")
+                file.write(f"Results\nBER: {ber.item()}\nConfidence: {confidence.item()}\nRuntime: {self.runtime}")
 
             self.model.save_model(os.path.join(warm_start_path, f"{self.params['constellation']}_"
                                                                 f"{self.params['num_users']}_"

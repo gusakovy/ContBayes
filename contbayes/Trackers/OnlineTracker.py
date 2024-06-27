@@ -13,10 +13,11 @@ class DeepsicTracker:
     """
 
 
-    def __init__(self, detector, num_epochs, num_batches):
+    def __init__(self, detector, num_epochs, num_batches, learning_rate):
         self.detector = detector
         self.num_epochs = num_epochs
         self.num_batches = num_batches
+        self.learning_rate = learning_rate
         self.skip_counter = SkipCounter(categories=[])
 
     def run(self, dataloader: DataLoader, callback: callable = None, **kwargs):
@@ -32,6 +33,7 @@ class DeepsicTracker:
         for i, pilots in enumerate(tqdm(dataloader)):
             rx, labels = pilots
             batch_size = rx.size(0) // self.num_batches
-            self.detector.fit(rx=rx, labels=labels, num_epochs=self.num_epochs, batch_size=batch_size)
+            self.detector.fit(rx=rx, labels=labels, num_epochs=self.num_epochs, batch_size=batch_size,
+                              lr=self.learning_rate)
             if callback is not None:
                 callback(iteration_num=i, detector=self.detector, inputs=rx, outputs=labels)

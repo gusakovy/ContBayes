@@ -19,11 +19,12 @@ class SqrtEKF(EKF):
                  diag_loading: float = 0.0,
                  update_limit: float = 0.1,
                  obs_noise_cov: Tensor = None,
-                 obs_reduction: str = None):
+                 obs_reduction: str = None,
+                 obs_normalization: str = None):
 
         super().__init__(obs_model, state_model, process_noise_var, diag_loading,
-                         update_limit, obs_noise_cov, obs_reduction)
-        self.skip_counter = SkipCounter(['QR', 'Delta'])
+                         update_limit, obs_noise_cov, obs_reduction, obs_normalization)
+        self.skip_counter = SkipCounter(['Cholesky', 'QR', 'Delta'])
 
     def predict_state(self):
         """Does nothing. Square root Kalman filter predict and update steps are combined into one update step."""
@@ -60,9 +61,14 @@ class SqrtEKF(EKF):
                 R = utils.multiple_categorical_cov(prob_vector=y_hat,
                                                    num_classes=self.num_classes,
                                                    reduction=self.obs_reduction,
+                                                   normalization=self.obs_normalization,
                                                    labels=self.obs.outputs)
                 R = R + self.diag_loading * torch.eye(R.size(0))
-                R_c = torch.linalg.cholesky(R)
+                try:
+                    R_c = torch.linalg.cholesky(R)
+                except RuntimeError:
+                    self.skip_counter.increment('Cholesky')
+                    return
 
             case _:
                 y_hat = torch.atleast_2d(self.predict_outputs(self.obs.inputs))
@@ -70,18 +76,21 @@ class SqrtEKF(EKF):
                 R = self.obs_noise_cov
                 R_c = torch.linalg.cholesky(R)
 
-        H = self.obs_model.jacobian(self.obs.inputs, reduction=self.obs_reduction, labels=self.obs.outputs)
+        H = self.obs_model.jacobian(self.obs.inputs,
+                                    reduction=self.obs_reduction,
+                                    normalization = self.obs_normalization,
+                                    labels=self.obs.outputs)
 
         state_dim = L_c.size(0)
         obs_dim = R_c.size(0)
 
         if self.obs_reduction is not None:
             y_true = utils.reduce_tensor(y_true.view(self.obs.num_obs, self.num_classes - 1),
-                                         reduction=self.obs_reduction,
+                                         normalization=self.obs_normalization,
                                          num_classes=self.num_classes,
                                          labels=self.obs.outputs).view(-1, 1)
             y_hat = utils.reduce_tensor(y_hat.view(self.obs.num_obs, self.num_classes - 1),
-                                        reduction=self.obs_reduction,
+                                        normalization=self.obs_normalization,
                                         num_classes=self.num_classes,
                                         labels=self.obs.outputs).view(-1, 1)
 
@@ -159,10 +168,11 @@ class DeepsicSqrtEKF(SqrtEKF):
                  process_noise_var: float,
                  diag_loading: float = 0.0,
                  update_limit: float = 0.1,
-                 obs_reduction: str = None):
+                 obs_reduction: str = None,
+                 obs_normalization: str = None):
 
         super().__init__(detector.bnn_block, state_model, process_noise_var, diag_loading,
-                         update_limit, None, obs_reduction)
+                         update_limit, None, obs_reduction, obs_normalization)
         self.detector = detector
 
     def _update_block(self, layer_num: int, user_num: int) -> None:

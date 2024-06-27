@@ -44,8 +44,7 @@ def deepsic_parameter_combinations(config: Config) -> list[dict]:
         if 'KF' in tracking_method:
             kf_config = (config.general | config.channel | config.warm_start | config.deepsic |
                          tracking_config | config.ekf)
-            kf_config['num_epochs'] = '-'
-            kf_config['num_batches'] = '-'
+            kf_config['num_epochs'] = kf_config['num_batches'] = kf_config['tracking_lr'] = '-'
             _listify_dict(kf_config)
             kf_experiments = [dict(zip(kf_config.keys(), run_config))
                               for run_config in itertools.product(*kf_config.values())]
