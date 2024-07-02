@@ -6,7 +6,6 @@
 
 ### In Progress
 
-- [ ] Implement COST2100 channel.
 - [ ] Add option to compute the BER at every time step to the DeepSIC experiments.
 
 ### Done ✓
@@ -21,3 +20,4 @@
 - [x] Write a test function to run experiments on DeepSIC models.
 - [x] Implement plotters which will use data from the DeepSIC experiment results database.
 - [x] Add option for 'mean' normalization when performing per-label reduction.
+- [x] Implement COST2100 channel.
