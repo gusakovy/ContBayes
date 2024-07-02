@@ -11,6 +11,7 @@ from contbayes.Trackers.EKF import DeepsicEKF
 from contbayes.Trackers.SqrtEKF import DeepsicSqrtEKF
 from contbayes.Trackers.OnlineTracker import DeepsicTracker
 from contbayes.Channels.sed_channel import SEDChannel
+from contbayes.Channels.cost_channel import Cost2100Channel
 from contbayes.Utilities.data_utils import prepare_experiment_data, prepare_single_batch
 from experiments.experiment import Experiment
 from experiments.config import Config
@@ -36,14 +37,22 @@ class DeepsicExperiment(Experiment):
             raise ValueError("Experiment already logged.")
 
     def _init_channel(self):
-        if self.params['channel_type'] == 'Synthetic':
-            self.channel = SEDChannel(modulation_type=self.params['constellation'],
-                                      num_users=self.params['num_users'],
-                                      num_antennas=self.params['num_antennas'],
-                                      fading_coefficient=self.params['fading_coefficient'],
-                                      linear_channel=self.params['linear'])
-        else:
-            raise ValueError(f"Channel type '{self.params['channel_type']}' not supported.")
+        match self.params['channel_type']:
+            case 'Synthetic':
+                self.channel = SEDChannel(modulation_type=self.params['constellation'],
+                                          num_users=self.params['num_users'],
+                                          num_antennas=self.params['num_antennas'],
+                                          fading_coefficient=self.params['fading_coefficient'],
+                                          linear_channel=self.params['linear'])
+            case 'Cost2100':
+                self.channel = Cost2100Channel(modulation_type=self.params['constellation'],
+                                               num_users=self.params['num_users'],
+                                               num_antennas=self.params['num_antennas'],
+                                               fading_coefficient=self.params['fading_coefficient'],
+                                               linear_channel=self.params['linear'])
+
+            case _:
+                raise ValueError(f"Channel type '{self.params['channel_type']}' not supported.")
 
     def _init_model(self):
         if self.params['tracking_method'] != 'GD':
@@ -103,7 +112,7 @@ class DeepsicExperiment(Experiment):
         torch.cuda.manual_seed(self.params['seed'])
 
     def _warm_start(self):
-        warm_start_path = os.path.join(RESULTS_DIR, 'DeepSIC', 'warm_starts',
+        warm_start_path = os.path.join(RESULTS_DIR, 'DeepSIC', 'warm_starts', str(self.params['channel_type']),
                                        'bayesian' if self.params['tracking_method'] != 'GD' else 'frequentist')
 
         try:
