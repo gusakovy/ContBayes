@@ -78,11 +78,12 @@ class DeepsicExperiment(Experiment):
 
     def _init_tracker(self):
         match self.params['tracking_method']:
-            case 'LF-VCL' | 'GD':
+            case 'VCL' | 'LF-VCL' | 'GD':
                 self.tracker = DeepsicTracker(detector=self.model,
                                               num_epochs=self.params['num_epochs'],
                                               num_batches=self.params['num_batches'],
-                                              learning_rate=self.params['tracking_lr'])
+                                              learning_rate=self.params['tracking_lr'],
+                                              update_prior = True if self.params['tracking_method'] == 'VCL' else False)
 
             case 'EKF':
                 self.tracker = DeepsicEKF(detector=self.model,

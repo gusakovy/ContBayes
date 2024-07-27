@@ -1,12 +1,16 @@
 from dataclasses import dataclass
 from typing import Type
 from functools import partial
+import numpy as np
 import torch.nn as nn
 from torch import Tensor
 import pyro
 import pyro.infer.autoguide as ag
+import pyro.distributions as dist
 import tyxe
 from tyxe.priors import Prior
+from tyxe.priors import util as prior_util
+from tyxe.likelihoods import Likelihood
 from contbayes.Utilities.math_utils import scale_and_tril_to_cov, cov_to_scale_and_tril, autograd_jacobian
 
 
@@ -35,8 +39,9 @@ class FullCovBNN(tyxe.VariationalBNN):
 
     :param model_type: "classifier" or "regressor"
     :param output_dim: dimensionality of the output
-    :param net_builder: torch.nn.Module which the Bayesian Neural Network is built on
-    :param prior: tyxe.likelihoods.Likelihood to serve as a prior distribution
+    :param net_builder: `torch.nn.Module` which the Bayesian Neural Network is built on
+    :param prior: `tyxe.priors.Prior` import Prior to serve as a prior distribution
+    :param likelihood: `tyxe.likelihoods.Likelihood` to serve as an observation model
     :param init_cov_scale: scale for the initialization of the covariance matrix
     """
 
@@ -45,7 +50,7 @@ class FullCovBNN(tyxe.VariationalBNN):
                  output_dim: int,
                  net_builder: Type[nn.Module],
                  prior: Prior,
-                 likelihood: tyxe.likelihoods.Likelihood,
+                 likelihood: Likelihood,
                  init_cov_scale: float = 1e-4):
 
         if model_type not in MODEL_TYPES:
@@ -57,6 +62,34 @@ class FullCovBNN(tyxe.VariationalBNN):
         self.type = model_type
         self.output_dim = output_dim
         self.torch_net = net_builder()
+
+    def update_prior(self, new_prior):
+        self.prior = new_prior
+        self.prior.update_(self.net)
+
+    def set_prior_to_current_diagonal(self):
+        """
+        Updates the prior of the Bayesian neural network to be diagonal of the current distribution of the weights,
+        that is, if the distributions of the weights is N(mu,Sigma), the prior will become N(mu,diag(Sigma)).
+        Intended for the implementation of variational continual learning (VCL).
+        """
+
+        new_prior_dict = {}
+        param_index = 0
+        for module_name, module in self.net.named_modules():
+            for site_name, site in list(prior_util.named_pyro_samples(module, recurse=False)):
+                full_name = module_name + "." + site_name
+                shape = site.event_shape
+                dim = len(shape)
+                num_params = np.prod(shape)
+                loc_tensor = self.net_guide.loc[param_index: param_index + num_params].detach().clone().reshape(
+                    site.event_shape)
+                scale_tensor = self.net_guide.scale[param_index: param_index + num_params].detach().clone().reshape(
+                    site.event_shape)
+                new_prior_dict[full_name] = dist.Normal(loc=loc_tensor, scale=scale_tensor).expand(shape).to_event(dim)
+                param_index += num_params
+        new_prior = tyxe.priors.DictPrior(new_prior_dict)
+        self.update_prior(new_prior)
 
     @staticmethod
     def get_loc() -> Tensor:

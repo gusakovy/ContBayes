@@ -6,7 +6,7 @@
 
 ### In Progress
 
-- [ ] Add option to update the prior of a Bayesian model.
+- [ ] Make DeepSIC experiments more efficient by saving and loading train and test data.
 
 ### Done ✓
 
@@ -22,3 +22,4 @@
 - [x] Add option for 'mean' normalization when performing per-label reduction.
 - [x] Implement COST2100 channel.
 - [x] Add option to compute the BER at every time step to the DeepSIC experiments.
+- [x] Add option to update the prior of a Bayesian model.

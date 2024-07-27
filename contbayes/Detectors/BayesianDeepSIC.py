@@ -123,22 +123,24 @@ class BayesianDeepSIC:
             predictions = self.layer_transition(layer_idx, rx, predictions, truncate=(layer_idx < self.num_layers - 1))
         return predictions.view(-1, self.num_users, self.num_classes)
 
-    def _train_block(self, layer_num: int, user_num: int, dataloader: DataLoader, num_epochs: int = 250,
-                     lr: float = 1e-3, callback: callable = None):
+    def _train_block(self, layer_num: int, user_num: int, dataloader: DataLoader, num_epochs: int,
+                     lr: float, update_prior: bool, callback: callable):
         """Train a single block of the Bayesian DeepSIC model using Stochastic Variational Inference (SVI)."""
 
         if self.verbose:
             print(f"Training block [user = {user_num}][layer = {layer_num}]")
         optimizer = pyro.optim.Adam({"lr": lr})
         self.bnn_block.set_params(self.param_matrix[user_num][layer_num])
+        if update_prior:
+            self.bnn_block.set_prior_to_current_diagonal()
         self.bnn_block.fit(data_loader=dataloader,
                            optim=optimizer,
                            num_epochs=num_epochs,
                            callback=None if callback is None else partial(callback, user=user_num, layer=layer_num))
         self.param_matrix[user_num][layer_num] = self.bnn_block.get_params()
 
-    def _train_layer(self, layer_num: int, rx: Tensor, labels: Tensor, pred: Tensor = None, num_epochs: int = 250,
-                     lr: float = 1e-3, batch_size: int = None, callback: callable = None) -> Tensor:
+    def _train_layer(self, layer_num: int, rx: Tensor, labels: Tensor, pred: Tensor, num_epochs: int,
+                     lr: float, batch_size: int, update_prior: bool, callback: callable) -> Tensor:
         """Train a layer of the Bayesian DeepSIC model using Stochastic Variational Inference (SVI)."""
 
         inputs = self.pred_and_rx_to_input(layer_num, rx, pred)
@@ -158,12 +160,13 @@ class BayesianDeepSIC:
                               dataloader=loader,
                               num_epochs=num_epochs,
                               lr=lr,
+                              update_prior=update_prior,
                               callback=callback)
 
         return self.layer_transition(layer_num, rx, pred)
 
     def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 1e-3, batch_size: int = None,
-            callback: callable = None):
+            update_prior: bool = False, callback: callable = None, **kwargs):
         """
         Train the Bayesian DeepSIC model using Stochastic Variational Inference (SVI).
 
@@ -172,6 +175,7 @@ class BayesianDeepSIC:
         :param num_epochs: number of training epochs
         :param lr: learning rate
         :param batch_size: batch size
+        :param update_prior: whether to update the prior after every iteration
         :param callback: callback function with input variables bnn, i, e, user_num, layer_num (passed into _train_block
              for each DeepSIC block)
         """
@@ -185,6 +189,7 @@ class BayesianDeepSIC:
                                             num_epochs=num_epochs,
                                             lr=lr,
                                             batch_size=batch_size,
+                                            update_prior = update_prior,
                                             callback=callback)
 
     def test_model(self, rx: Tensor, labels: Tensor) -> tuple[Tensor, Tensor]:

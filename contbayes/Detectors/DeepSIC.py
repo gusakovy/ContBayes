@@ -153,7 +153,7 @@ class DeepSIC:
         return self.layer_transition(layer_num, rx, pred)
 
     def fit(self, rx: Tensor, labels: Tensor, num_epochs: int = 250, lr: float = 1e-3,
-            batch_size: int = None, callback: callable = None):
+            batch_size: int = None, callback: callable = None, **kwargs):
         """
         Train the DeepSIC model using Stochastic Gradient Descent (SGD).
 
