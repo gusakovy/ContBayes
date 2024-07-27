@@ -6,7 +6,7 @@
 
 ### In Progress
 
-- [ ] Add option to compute the BER at every time step to the DeepSIC experiments.
+- [ ] Add option to update the prior of a Bayesian model.
 
 ### Done ✓
 
@@ -21,3 +21,4 @@
 - [x] Implement plotters which will use data from the DeepSIC experiment results database.
 - [x] Add option for 'mean' normalization when performing per-label reduction.
 - [x] Implement COST2100 channel.
+- [x] Add option to compute the BER at every time step to the DeepSIC experiments.

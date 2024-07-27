@@ -1,5 +1,5 @@
 general:
-  version: 0.2
+  version: 0.3
   seed: 42
   device: 'cpu'
 
@@ -26,7 +26,7 @@ deepsic:
   hidden_size: 12
 
 tracking:
-  tracking_method: ['Nothing', 'EKF', 'SqrtEKF', 'SVI', 'GD']
+  tracking_method: ['Joint-Learning', 'EKF', 'SqrtEKF', 'LF-VCL', 'GD']
   num_pilots: 128
   num_epochs: 1
   num_batches: 1
@@ -39,6 +39,3 @@ ekf:
   diag_loading: 0
   reduction: 'label'
   normalization: 'mean'
-
-log:
-  test_each_block: False
