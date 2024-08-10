@@ -8,32 +8,39 @@ from experiments.csv_api import convert_string_to_value
 from dir_definitions import RESULTS_DIR
 
 SAVEFILE_DIR = os.path.join(RESULTS_DIR, 'DeepSIC', 'results')
-RESULTS = ['ber', 'confidence', 'skip_ratio', 'run_time', 'savefile']
-METHODS = ['EKF', 'SqrtEKF', 'LF-VCL', 'GD', 'Joint-Learning', 'Retrain']
-COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2',
-          '#7f7f7f', '#bcbd22', '#17becf']
+RESULTS = ['error_rate', 'confidence', 'skip_ratio', 'run_time', 'savefile']
+METHODS = ['Pre-train', 'EKF', 'LF-VCL', 'VCL', 'CL', 'Retrain']
+COLORS = ['#ac564b', '#2ca02c', '#9467bd', '#1f77b4', '#17bec9', '#ff7f0e', '#d62728', '#7f7f7f', '#bcbd22', '#e377c2']
+MARKERS = ["", "o", "v", "^", "s", "P", "X", "", "p", 'd']
 
 # User input
 x_variable = 'tracking_snr'  # use 'time' for per-frame metrics.
-y_variable = 'ber'
-constraints = {'version': 0.3,
-               'channel_type': 'Synthetic',
-               'fading_coefficient': 0.7,
+y_variable = 'error_rate'
+constraints = {'version': 1.0,
+               'channel_type': 'Cost2100',
+               'tracking_snr': [8, 9, 10, 11, 12],
+               'fading_coefficient': 0.65,
                'constellation': 'QPSK',
-               'num_pilots': ['-', 128, 256],
-               'num_epochs': ['-', 1],
+               'num_pilots': ['-', 128],
+               'num_epochs': ['-', 4, 20],
                'num_batches': ['-', 1],
-               'hidden_size': 12,
+               'tracking_lr': ['-', 0.0005],
+               'hidden_size': 6,
+               'num_blocks': 75,
+               'state_model': ['-', 1],
+               'diag_loading': ['-', 0],
                'normalization': ['-', 'mean']}
 
 select_criteria = 'tracking_snr'
-select_value = 13
+select_value = 11
 
-plot_title = f"BER vs SNR - {constraints['channel_type']} channel, {constraints['num_pilots'][-1]} pilots"
+plot_title = f"SER vs SNR - {constraints['channel_type']} channel, {constraints['num_pilots'][-1]} pilots"
 plot_x_label = "SNR [dB]"
-plot_y_label = "BER"
+plot_y_label = "Error Rate"
 log_scale_x = None
 log_scale_y = 10
+x_ticks = np.arange(8, 13, 1)
+x_lim = [7.9, 12.1]
 
 # Database path
 data_path = os.path.join(RESULTS_DIR, 'DeepSIC', 'database.csv')
@@ -66,7 +73,7 @@ for tracking_method in METHODS:
                                       (method_df['num_batches'] == num_batches)]
 
         # Find the experiment for which y_variable is minimized according to selection criteria
-        chosen_params_idx = epochs_batches_df[epochs_batches_df[select_criteria] == select_value]['ber'].idxmin()
+        chosen_params_idx = epochs_batches_df[epochs_batches_df[select_criteria] == select_value]['error_rate'].idxmin()
         chosen_params = epochs_batches_df.loc[chosen_params_idx]
         num_blocks = chosen_params['num_blocks']
 
@@ -81,36 +88,44 @@ for tracking_method in METHODS:
 
         # Process results
         if x_variable == 'time':
-            if y_variable not in ['ber', 'confidence']:
-                raise ValueError("Per-frame metrics are only supported for BER and Confidence")
-            x_val = []
-            y_val = []
+            if y_variable not in ['error_rate', 'confidence']:
+                raise ValueError("Per-frame metrics are only supported for SER and Confidence")
+            x_val = np.arange(1, num_blocks+1)
+            y_val = np.zeros([best_params_df.shape[0], num_blocks], dtype=float)
+            i = 0
             for _, row in best_params_df.iterrows():
                 savefile = row['savefile']
                 savefile_path = os.path.join(SAVEFILE_DIR, savefile)
-                bers, confs = pickle.load(open(savefile_path, 'rb'))
-                data = bers if y_variable == 'ber' else confs
+                sers, confs = pickle.load(open(savefile_path, 'rb'))
+                data = sers if y_variable == 'error_rate' else confs
                 if row[select_criteria] == select_value:
-                    x_val = np.arange(1, num_blocks + 1)
-                    y_val = np.cumsum(bers) / np.arange(1, len(bers) + 1)
+                    y_val[i, :] = (np.cumsum(data) / np.arange(1, len(data) + 1))
+                i += 1
+            y_val = y_val.mean(axis=0)
+
+
         else:
+            best_params_df = best_params_df.groupby(x_variable)[y_variable].mean().reset_index()
             x_val = best_params_df[x_variable].values
             y_val = best_params_df[y_variable].values
 
         # Plot results
         if ((num_epochs != '-' or num_batches != '-') and
                 tracking_method != "Nothing"):
-            label = f'{idx} - {tracking_method}_{num_epochs}_{num_batches}'
+            label = f'{tracking_method}-{num_epochs}'
         else:
-            label = f'{idx} - {tracking_method}'
+            label = f'{tracking_method}'
 
         if y_variable == 'run_time':
             y_val /= num_blocks
 
         ax.plot(x_val, y_val,
-                linestyle='--' if tracking_method in ["Joint-Learning", "Retrain"] else '-',
-                marker='',
-                color = COLORS[idx % 10],
+                linestyle='--' if tracking_method=="Pre-train" else '-.' if tracking_method=="Retrain" else '-',
+                marker= '' if tracking_method in ["Pre-train", "Retrain"] else MARKERS[(idx-1) % 10],
+                markevery = [0, 14, 29, 44, 59, 74] if x_variable == 'time' else 1,
+                markersize = 6,
+                zorder = 10 if tracking_method in ["Pre-train", "Retrain"] else 3,
+                color = COLORS[(idx-1) % 10],
                 label = label)
 
         idx += 1
@@ -125,7 +140,12 @@ if log_scale_y is not None:
     plt.yscale("log", base=log_scale_y)
     ax = plt.gca()
     ax.yaxis.set_major_locator(ticker.LogLocator(base=log_scale_y, numticks=10))
-
+if x_ticks is not None:
+    ax.xaxis.set_ticks(x_ticks)
+if x_lim is not None:
+    ax.set_xlim(x_lim)
 plt.grid(True, which='both')
-plt.legend(title="Method")
+plt.legend(fancybox=True, framealpha=0.7, ncol = 2, title='Method')
+plt.savefig("image.svg",bbox_inches='tight')
+plt.tight_layout()
 plt.show()

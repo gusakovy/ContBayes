@@ -59,7 +59,7 @@ class DeepsicExperiment(Experiment):
                 raise ValueError(f"Channel type '{self.params['channel_type']}' not supported.")
 
     def _init_model(self):
-        if self.params['tracking_method'] not in  ['GD', 'Retrain']:
+        if self.params['tracking_method'] not in  ['CL', 'Retrain']:
             pyro.clear_param_store()
             self.model = BayesianDeepSIC(modulation_type=self.params['constellation'],
                                          num_users=self.params['num_users'],
@@ -78,7 +78,7 @@ class DeepsicExperiment(Experiment):
 
     def _init_tracker(self):
         match self.params['tracking_method']:
-            case 'VCL' | 'LF-VCL' | 'GD':
+            case 'VCL' | 'LF-VCL' | 'CL':
                 self.tracker = DeepsicTracker(detector=self.model,
                                               num_epochs=self.params['num_epochs'],
                                               num_batches=self.params['num_batches'],
@@ -122,13 +122,14 @@ class DeepsicExperiment(Experiment):
             return
 
         warm_start_path = os.path.join(RESULTS_DIR, 'DeepSIC', 'warm_starts', str(self.params['channel_type']),
-                                       'bayesian' if self.params['tracking_method'] != 'GD' else 'frequentist')
+                                       'bayesian' if self.params['tracking_method'] != 'CL' else 'frequentist')
 
         try:
             self.model.load_model(os.path.join(warm_start_path, f"{self.params['constellation']}_"
                                                                 f"{self.params['num_users']}_"
                                                                 f"{self.params['num_layers']}_"
-                                                                f"{self.params['hidden_size']}.pt"))
+                                                                f"{self.params['hidden_size']}_"
+                                                                f"{self.params['seed']}.pt"))
         except FileNotFoundError:
             if self.verbose:
                 print("Warming up...")
@@ -143,7 +144,7 @@ class DeepsicExperiment(Experiment):
 
             losses = [[[] for _ in range(self.params['num_layers'])] for _ in range(self.params['num_users'])]
 
-            loss_callback = bayesian_deepsic_loss_callback if self.params['tracking_method'] != 'GD' \
+            loss_callback = bayesian_deepsic_loss_callback if self.params['tracking_method'] != 'CL' \
                 else deepsic_loss_callback
 
             self.runtime = time.time()
@@ -157,12 +158,13 @@ class DeepsicExperiment(Experiment):
                                               num_samples=self.params['test_dim'],
                                               frame_idx=0,
                                               snr=self.params['warm_start_snr'])
-            ber, confidence = self.model.test_model(rx=rx, labels=labels)
+            ser, confidence = self.model.test_model(rx=rx, labels=labels, error_type="SER")
 
             with open(os.path.join(warm_start_path, f"{self.params['constellation']}_"
                                                     f"{self.params['num_users']}_"
                                                     f"{self.params['num_layers']}_"
-                                                    f"{self.params['hidden_size']}.txt"), 'w') as file:
+                                                    f"{self.params['hidden_size']}_"
+                                                    f"{self.params['seed']}.txt"), 'w') as file:
 
                 file.write(f"Parameters\n"
                            f"SNR: {self.params['warm_start_snr']}\n"
@@ -171,14 +173,15 @@ class DeepsicExperiment(Experiment):
                            f"Batch size: {self.params['training_batch_size']}"
                            f"\nLearning Rate: {self.params['training_lr']}\n\n")
                 file.write(f"Results\n"
-                           f"BER: {ber.item()}\n"
+                           f"SER: {ser.item()}\n"
                            f"Confidence: {confidence.item()}\n"
                            f"Runtime: {self.runtime}")
 
             self.model.save_model(os.path.join(warm_start_path, f"{self.params['constellation']}_"
                                                                 f"{self.params['num_users']}_"
                                                                 f"{self.params['num_layers']}_"
-                                                                f"{self.params['hidden_size']}.pt"))
+                                                                f"{self.params['hidden_size']}_"
+                                                                f"{self.params['seed']}.pt"))
 
             fig, axs = plt.subplots(self.params['num_users'], self.params['num_layers'])
             for user_idx in range(self.params['num_users']):
@@ -193,7 +196,8 @@ class DeepsicExperiment(Experiment):
             plt.savefig(os.path.join(warm_start_path, "loss_curves", f"{self.params['constellation']}_"
                                                                      f"{self.params['num_users']}_"
                                                                      f"{self.params['num_layers']}_"
-                                                                     f"{self.params['hidden_size']}.svg"),
+                                                                     f"{self.params['hidden_size']}_"
+                                                                     f"{self.params['seed']}.svg"),
                         dpi=200, format='svg')
 
         if self.verbose:
@@ -206,7 +210,7 @@ class DeepsicExperiment(Experiment):
                                               snr=self.params['tracking_snr'])
 
         test_generator = dataloader_to_generator(test_loader)
-        bers, confs = [], []
+        errors, confs = [], []
 
         self.runtime = time.time()
         if self.tracker is not None:
@@ -215,7 +219,8 @@ class DeepsicExperiment(Experiment):
                                                    num_frames=self.params['num_blocks'],
                                                    snr=self.params['tracking_snr'])
 
-            callback = partial(per_frame_metrics_callback, bers=bers, confidences=confs, test_generator=test_generator)
+            callback = partial(per_frame_metrics_callback, errors=errors,
+                               confidences=confs, test_generator=test_generator)
             self.tracker.run(train_loader, callback=callback)
 
         elif self.params['tracking_method'] == "Retrain":
@@ -230,25 +235,25 @@ class DeepsicExperiment(Experiment):
                 self.model.fit(rx=rx, labels=labels, num_epochs=self.params['training_epochs'],
                                lr=self.params['training_lr'], batch_size=self.params['training_batch_size'])
                 test_rx, test_labels = next(test_generator)
-                ber, confidence = self.model.test_model(rx=test_rx, labels=test_labels)
-                bers.append(ber.item())
+                ser, confidence = self.model.test_model(rx=test_rx, labels=test_labels, error_type="SER")
+                errors.append(ser.item())
                 confs.append(confidence.item())
 
         else:
             for _ in tqdm(range(self.params['num_blocks'])):
                 test_rx, test_labels = next(test_generator)
-                ber, confidence = self.model.test_model(rx=test_rx, labels=test_labels)
-                bers.append(ber.item())
+                ser, confidence = self.model.test_model(rx=test_rx, labels=test_labels, error_type="SER")
+                errors.append(ser.item())
                 confs.append(confidence.item())
 
         self.runtime = time.time() - self.runtime
-        self.results = (bers, confs)
+        self.results = (errors, confs)
         save_path = os.path.join(RESULTS_DIR, "DeepSIC", "results")
         self.filename = pickle_save(target_data=self.results, directory=save_path)
 
     def _test(self):
-        bers, confs = self.results
-        mean_ber = np.mean(bers)
+        errors, confs = self.results
+        mean_error = np.mean(errors)
         mean_conf = np.mean(confs)
 
         if self.params['tracking_method'] not in ['Joint-Learning', 'Retrain']:
@@ -256,7 +261,7 @@ class DeepsicExperiment(Experiment):
                           (self.params['num_blocks'] * self.params['num_users'] * self.params['num_layers']))
         else:
             skip_ratio = '-'
-        return {'ber': mean_ber, 'confidence': mean_conf, 'skip_ratio': skip_ratio, 'run_time': self.runtime}
+        return {'error_rate': mean_error, 'confidence': mean_conf, 'skip_ratio': skip_ratio, 'run_time': self.runtime}
 
     def _log(self, metrics):
         log_path = os.path.join(RESULTS_DIR, 'DeepSIC', 'database.csv')

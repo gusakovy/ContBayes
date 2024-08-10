@@ -79,7 +79,8 @@ class BayesianDeepSIC:
             inputs = torch.cat([pred, rx], dim=1)
         return inputs
 
-    def layer_transition(self, layer_num: int, rx: Tensor, pred: Tensor = None, truncate: bool = True) -> Tensor:
+    def layer_transition(self, layer_num: int, rx: Tensor, pred: Tensor = None, truncate: bool = True,
+                         num_predictions: int = 1) -> Tensor:
         """
         Pass the data through a layer of the Bayesian DeepSIC model.
 
@@ -87,6 +88,7 @@ class BayesianDeepSIC:
         :param rx: receive input
         :param pred: prediction of the previous layer
         :param truncate: whether to truncate the input to the number of classes (usually done for the last layer)
+        :param num_predictions: number of forward passes through the network
         :return: output of the layer (aggregated predictions of the blocks in the layer)
         """
 
@@ -102,25 +104,29 @@ class BayesianDeepSIC:
             user_inputs = inputs[..., [i for i in range(self.rx_size + (self.num_classes - 1) * self.num_users)
                                        if i not in user_indices]]
             if truncate:
-                layer_outputs[..., user_indices] = self.bnn_block.predict(user_inputs)[..., :(self.num_classes - 1)]
+                layer_outputs[..., user_indices] = \
+                    self.bnn_block.predict(user_inputs,
+                                           num_predictions = num_predictions)[..., :(self.num_classes - 1)]
             else:
                 user_indices = range(self.num_classes * user_idx, self.num_classes * (user_idx + 1))
                 layer_outputs[..., user_indices] = self.bnn_block.predict(user_inputs)
 
         return layer_outputs.detach()
 
-    def predict(self, rx: Tensor) -> Tensor:
+    def predict(self, rx: Tensor, num_predictions: int = 1) -> Tensor:
         """
         Forward pass of the Bayesian DeepSIC model.
 
         :param rx: receive input
+        :param num_predictions: number of forward passes through the network
         :return: output of the DeepSIC model (aggregated predictions of the blocks in the last layer)
         """
 
         rx = torch.atleast_2d(rx)
         predictions = None
         for layer_idx in range(self.num_layers):
-            predictions = self.layer_transition(layer_idx, rx, predictions, truncate=(layer_idx < self.num_layers - 1))
+            predictions = self.layer_transition(layer_idx, rx, predictions, truncate=(layer_idx < self.num_layers - 1),
+                                                num_predictions=num_predictions)
         return predictions.view(-1, self.num_users, self.num_classes)
 
     def _train_block(self, layer_num: int, user_num: int, dataloader: DataLoader, num_epochs: int,
@@ -192,7 +198,7 @@ class BayesianDeepSIC:
                                             update_prior = update_prior,
                                             callback=callback)
 
-    def test_model(self, rx: Tensor, labels: Tensor) -> tuple[Tensor, Tensor]:
+    def test_model(self, rx: Tensor, labels: Tensor, error_type: str = "SER") -> tuple[Tensor, Tensor]:
         """
         Compute the bit error rate and confidence of the model on the test data.
 
@@ -201,13 +207,22 @@ class BayesianDeepSIC:
         :return: bit error rate and confidence of the model on the test data
         """
 
-        predictions = self.predict(rx)
+        predictions = self.predict(rx, num_predictions=10)
         confidence = predictions.max(-1).values.mean()
         hard_decisions = predictions.argmax(-1)
-        bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 3)
-        bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
-        bit_error_rate = bit_errors / (labels.numel() * bits_per_symbol)
-        return bit_error_rate, confidence
+
+        match error_type:
+            case "BER":
+                bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 3)
+                bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
+                error_rate = bit_errors / (labels.numel() * bits_per_symbol)
+            case "SER":
+                errors = torch.count_nonzero(hard_decisions - labels)
+                error_rate = errors / labels.numel()
+            case _:
+                raise ValueError(f"Unknown error type {error_type}. Available types are BER and SER.")
+
+        return error_rate, confidence
 
     def save_model(self, path: str):
         """

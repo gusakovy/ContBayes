@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 from dir_definitions import RESOURCES_DIR
 
-SCALING_COEF = 0.25
+SCALING_COEFFICIENT = 0.25
 MAX_FRAMES = 25
 
 COST2100_DIR = os.path.join(RESOURCES_DIR, 'cost2100_channel')
@@ -24,8 +24,6 @@ class Cost2100Channel:
                  fading_coefficient: float, linear_channel: bool = False):
         if modulation_type not in MODULATION_TYPES:
             raise ValueError(f"Modulation type must be one of {MODULATION_TYPES}.")
-        if fading_coefficient > 1 or fading_coefficient < 0:
-            raise ValueError("Fading coefficient must be between 0 and 1.")
         self.modulation_type = modulation_type
         self.num_users = num_users
         self.num_antennas = num_antennas
@@ -45,7 +43,7 @@ class Cost2100Channel:
             path_to_mat = os.path.join(COST2100_DIR, f'{main_folder}', f'h_{i}.mat')
             h_user = torch.tensor(scipy.io.loadmat(path_to_mat)['norm_channel'][frame_ind % MAX_FRAMES,:self.num_users],
                                   dtype=torch.float)
-            total_h[i - 1] = SCALING_COEF * h_user
+            total_h[i - 1] = SCALING_COEFFICIENT * h_user / self.fading_coefficient
 
         total_h[np.arange(self.num_users), np.arange(self.num_users)] = 1
         return total_h

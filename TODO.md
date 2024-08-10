@@ -6,7 +6,7 @@
 
 ### In Progress
 
-- [ ] Make DeepSIC experiments more efficient by saving and loading train and test data.
+- [ ] Add installation and usage instructions, as well as a package list.
 
 ### Done ✓
 

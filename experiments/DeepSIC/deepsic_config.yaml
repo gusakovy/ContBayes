@@ -1,39 +1,39 @@
 general:
-  version: 0.3
-  seed: 42
+  version: 1.0
+  seed: 0
   device: 'cpu'
 
 channel:
-  channel_type: 'Synthetic'
+  channel_type: 'Cost2100'
   linear: False
   num_users: 4
   num_antennas: 4
-  fading_coefficient: 0.75
-  warm_start_snr: 13
-  tracking_snr: [9, 11, 13, 15]
+  fading_coefficient: 0.65
+  warm_start_snr: 9
+  tracking_snr: [8, 9, 10, 11, 12]
   constellation: 'QPSK'
-  num_blocks: 180
+  num_blocks: 75
 
 warm_start:
-  training_lr: 0.001
-  training_epochs: 25
+  training_lr: 0.0005
+  training_epochs: 80
   training_dim: 2048
   training_batch_size: 32
   test_dim: 100000
 
 deepsic:
   num_layers: 4
-  hidden_size: 12
+  hidden_size: 6
 
 tracking:
-  tracking_method: ['Joint-Learning', 'EKF', 'SqrtEKF', 'LF-VCL', 'GD']
+  tracking_method: ['Pre-train', 'EKF', 'LF-VCL', 'CL']
   num_pilots: 128
-  num_epochs: 1
+  num_epochs: [4, 20]
   num_batches: 1
-  tracking_lr: 0.001
+  tracking_lr: 0.0005
 
 ekf:
-  state_model: 0.999
+  state_model: 1
   process_noise_var: 0.000001
   update_limit: 0.1
   diag_loading: 0
