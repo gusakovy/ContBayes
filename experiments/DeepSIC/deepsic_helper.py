@@ -22,7 +22,7 @@ def deepsic_parameter_combinations(config: Config) -> list[dict]:
         config.tracking['tracking_method'] = [config.tracking['tracking_method']]
 
     experiments_list = []
-    for not_tracking_method in set(config.tracking['tracking_method']).intersection(['Joint-Learning', 'Retrain']):
+    for not_tracking_method in set(config.tracking['tracking_method']).intersection(['Pre-train', 'Retrain']):
         no_tracking_config = config.general | config.channel | config.warm_start | config.deepsic
         _listify_dict(no_tracking_config)
         no_tracking_experiments = [dict(zip(no_tracking_config.keys(), run_config))

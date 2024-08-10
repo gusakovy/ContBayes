@@ -177,7 +177,7 @@ class DeepSIC:
                                             batch_size=batch_size,
                                             callback=callback)
 
-    def test_model(self, rx: Tensor, labels: Tensor) -> tuple[Tensor, Tensor]:
+    def test_model(self, rx: Tensor, labels: Tensor, error_type: str = "SER") -> tuple[Tensor, Tensor]:
         """
         Compute the bit error rate and confidence of the model on the test data.
 
@@ -189,10 +189,19 @@ class DeepSIC:
         predictions = self.predict(rx)
         confidence = predictions.max(-1).values.mean()
         hard_decisions = predictions.argmax(-1)
-        bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 3)
-        bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
-        bit_error_rate = bit_errors / (labels.numel() * bits_per_symbol)
-        return bit_error_rate, confidence
+
+        match error_type:
+            case "BER":
+                bit_errors = torch.sum(torch.abs(hard_decisions - labels) % 3)
+                bits_per_symbol = 1 if self.modulation_type == "BPSK" else 2
+                error_rate = bit_errors / (labels.numel() * bits_per_symbol)
+            case "SER":
+                errors = torch.count_nonzero(hard_decisions - labels)
+                error_rate = errors / labels.numel()
+            case _:
+                raise ValueError(f"Unknown error type {error_type}. Available types are BER and SER.")
+
+        return error_rate, confidence
 
     def save_model(self, path: str):
         """
